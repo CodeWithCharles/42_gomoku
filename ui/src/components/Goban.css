@@ -1,0 +1,61 @@
+.goban {
+  width: min(100%, 78vh);
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: var(--radius);
+}
+
+.goban-bg {
+  fill: var(--board);
+}
+
+.goban-line {
+  stroke: var(--line);
+  stroke-width: 0.03;
+}
+
+.goban-star {
+  fill: var(--line);
+}
+
+.goban-stone {
+  stroke-width: 0.03;
+}
+
+.goban-black {
+  fill: var(--stone-black);
+  stroke: #000;
+}
+
+.goban-white {
+  fill: var(--stone-white);
+  stroke: #b9c0ca;
+}
+
+.goban-last {
+  fill: var(--accent);
+}
+
+.goban-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.goban-hit:hover {
+  fill: var(--accent);
+  fill-opacity: 0.25;
+}
+
+.goban-heat {
+  fill: var(--accent);
+}
+
+.goban-pv {
+  fill: var(--ok);
+}
+
+.goban-best {
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 0.06;
+}

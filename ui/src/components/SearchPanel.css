@@ -1,0 +1,45 @@
+.search {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+
+.search h2 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.search-live {
+  color: var(--ok);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.search dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  margin: 0;
+}
+
+.search dt {
+  color: var(--text-dim);
+}
+
+.search dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.search-pv {
+  margin: 10px 0 0;
+  font-family: var(--mono);
+  color: var(--ok);
+  word-break: break-all;
+}

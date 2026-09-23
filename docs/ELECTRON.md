@@ -305,7 +305,7 @@ app/
   "version": "0.1.0",
   "main": "main.js",
   "scripts": { "start": "electron ." },
-  "devDependencies": { "electron": "^33.2.1" }
+  "devDependencies": { "electron": "44.4.5" }
 }
 ```
 
@@ -316,6 +316,12 @@ app: $(NAME)
 
 .PHONY: all clean fclean re test bench debug ui app
 ```
+
+Tant que le moteur C++ n'existe pas, `app` dépend de `ui` et la coque est lancée
+sur `tools/mock-engine.mjs` via `npm run start:mock` — voir la section
+« Développer sans le moteur C++ » du `README.md`. La variable d'environnement
+`GOMOKU_ENGINE` surcharge `enginePath()` pour pointer sur ce moteur factice ;
+les deux branches `app.isPackaged` restent intactes en dessous.
 
 > **`app` est aussi un nom de dossier.** Sans `.PHONY`, make voit le répertoire
 > `app/`, le considère à jour, et la cible ne s'exécute jamais.

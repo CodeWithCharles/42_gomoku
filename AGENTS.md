@@ -29,7 +29,9 @@ app/         coque Electron        (aucune logique de jeu)
 ```
 
 La coque et ses trois canaux de communication avec le moteur sont décrits dans
-[docs/ELECTRON.md](docs/ELECTRON.md).
+[docs/ELECTRON.md](docs/ELECTRON.md). Le raccordement du C++ à l'interface,
+étape par étape et avec ses critères d'acceptation, est dans
+[docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 La règle de dépendance est stricte et détaillée dans
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). En particulier : **aucune règle du
