@@ -1,0 +1,23 @@
+# Build artefacts
+build/
+Gomoku
+gomoku_tests
+gomoku_bench
+
+# UI
+ui/node_modules/
+# NOTE: ui/dist/ est VOLONTAIREMENT versionne.
+# Le binaire Gomoku sert ces fichiers statiques : aucune dependance a npm/node
+# le jour de la soutenance. Voir docs/ARCHITECTURE.md (ADR-006).
+
+# Coque Electron (ADR-005) : jamais commitee, `make` ne doit pas en dependre.
+app/node_modules/
+app/dist/
+release/
+
+# Editeurs / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+compile_commands.json
