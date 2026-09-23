@@ -1,98 +1,50 @@
 # Protocole moteur ↔ interface
 
-Transport : **WebSocket** (ADR-004).
+Transport : **WebSocket**, un seul client, messages **JSON texte** (ADR-004).
+Le moteur sert `ui/dist` en HTTP et ne promeut en WebSocket que le chemin
+**`/ws`**.
 
-- une seule connexion `ws://localhost:8642/ws`, ouverte au chargement de la page
-- commandes client → moteur : messages texte JSON
-- événements moteur → client : messages texte JSON
+## La référence fait foi
 
-Le moteur écoute sur `http://localhost:8642` (port configurable, et il prend le
-suivant si celui-ci est occupé). Il sert aussi les fichiers statiques de l'UI en
-HTTP ordinaire ; seul `/ws` est promu en WebSocket.
+`ui/src/protocol.ts` **est** le contrat : l'interface et `tools/mock-engine.mjs`
+sont écrits dessus. Ce document le décrit, il ne le définit pas. En cas de
+désaccord entre les deux, c'est ce document qui a tort.
 
-Trois fichiers doivent rester d'accord — toute modification les touche **tous
-les trois dans le même commit** :
+Trois fichiers changent **dans le même commit** :
 
-- `src/server/session.cpp` — production / consommation côté C++
-- `ui/src/protocol.ts` — types côté TypeScript
+- `ui/src/protocol.ts` — les types, la référence
+- `backend/src/server/session.cpp` — la production et la consommation côté C++
 - ce document
 
 ## Principe : une seule source de vérité
 
-Les commandes **ne sont pas acquittées par une réponse**. Le moteur répond en
-poussant un `state` (ou un `error`) sur la même socket.
-
-C'est le point important du design : un seul canal ordonné, donc pas de course
-entre un accusé de réception et un événement poussé, et aucun risque
-d'appliquer deux fois le même état. Le WebSocket rend cet invariant naturel :
-il n'existe littéralement pas d'autre chemin de retour.
+Le moteur ne répond jamais à une commande. Il pousse des **états complets**, et
+l'interface se contente de les afficher : 361 entiers, pas de diff, pas
+d'accusé de réception. Un seul canal ordonné, donc aucune désynchronisation
+possible.
 
 ## Conventions
 
 - Une intersection est un **index linéaire** `idx = y * 19 + x`, dans `[0, 361)`.
   `-1` signifie « aucune ».
-- Les couleurs sont les chaînes `"black"` / `"white"` / `"none"`.
+- `board[i]` vaut `0` (vide), `1` (noir) ou `2` (blanc).
+- Les couleurs sont `"black"` / `"white"`.
 - Les durées sont en millisecondes.
-- Tout message, dans les deux sens, est une **trame texte** contenant un objet
-  JSON avec un champ `type`. Pas de trame binaire, pas de fragmentation en
-  émission.
+- Les **commandes** sont en kebab-case (`new-game`), les **événements** en
+  snake_case (`new_game`). Incohérence connue et assumée : la corriger coûterait
+  du code pour aucun bénéfice.
 
-## Établissement de la connexion
-
-Le client ouvre la socket sur le chemin `/ws` :
-
-```ts
-const socket = new WebSocket(`ws://${location.host}/ws`);
-```
-
-Côté moteur, c'est une requête HTTP ordinaire promue en WebSocket (RFC 6455) :
-
-```
-GET /ws HTTP/1.1
-Host: localhost:8642
-Upgrade: websocket
-Connection: Upgrade
-Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
-Sec-WebSocket-Version: 13
-```
-
-```
-HTTP/1.1 101 Switching Protocols
-Upgrade: websocket
-Connection: Upgrade
-Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
-```
-
-`Sec-WebSocket-Accept` est `base64(sha1(clé + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))`.
-La constante est celle de la RFC, elle ne change jamais. SHA-1 et base64 sont à
-écrire dans `src/net/` (ADR-003 : aucune dépendance tierce).
-
-Deux règles de la RFC qui ne se négocient pas :
-
-- **toute trame client → serveur est masquée** : un XOR de 4 octets dont la clé
-  précède la charge utile. Un serveur qui oublie le démasquage lit du bruit ;
-- **une trame de contrôle (ping, pong, close) peut s'intercaler** entre deux
-  fragments d'un message, et sa charge utile ne dépasse pas 125 octets.
-
-Le moteur n'accepte **qu'une connexion à la fois**. Une seconde ouverture
-remplace la première, qui est fermée avec le code `1001`. Un client local, une
-partie : ADR-007.
-
-## Commandes — client → moteur
+## Client → moteur
 
 | `type` | champs | effet |
 |---|---|---|
 | `new-game` | `config?`, `players?` | réinitialise la partie |
-| `play` | `idx` ou `x`,`y` | joue un coup pour le joueur au trait |
+| `play` | `idx` (ou `x` + `y`) | joue un coup pour le joueur au trait |
 | `suggest` | — | lance une recherche **sans** jouer le coup |
 | `undo` | — | revient à une position où c'est à un humain de jouer |
 | `limits` | `maxDepth`, `budgetMs`, `maxCandidates` | règle la recherche |
-| `weights` | `weights: {…}` | règle l'heuristique à chaud |
-| `stop` | — | demande l'arrêt de la recherche |
-
-```json
-{ "type": "play", "idx": 180 }
-```
+| `weights` | `weights` | règle l'heuristique à chaud |
+| `stop` | — | demande l'arrêt de la recherche en cours |
 
 ```json
 { "type": "new-game",
@@ -101,13 +53,17 @@ partie : ADR-007.
   "players": { "black": "human", "white": "ai" } }
 ```
 
-Un `type` inconnu, un JSON invalide ou un champ manquant donnent un `error` de
-code `unknown` ; la connexion **n'est pas** fermée pour autant. Fermer la socket
-sur une commande fautive rendrait le débogage pénible pour rien.
+```json
+{ "type": "play", "idx": 180 }
+```
 
-## Événements — moteur → client
+Une commande fautive donne un `error`. **La socket reste ouverte**, toujours.
 
-### `state`
+## Moteur → client
+
+Trois événements seulement : `state`, `progress`, `error`.
+
+### `state` — l'état complet
 
 Envoyé à l'ouverture de la connexion, puis après chaque changement.
 
@@ -125,21 +81,23 @@ Envoyé à l'ouverture de la connexion, puis après chaque changement.
                "endgameCapture": true, "opening": "standard" },
   "limits":  { "maxDepth": 10, "budgetMs": 450, "maxCandidates": 20 },
   "history": [ { "idx": 180, "player": "black", "captured": [181, 182] } ],
-  "lastStats": { "…": "voir progress" } }
+  "lastStats": { "…": "voir Stats" } }
 ```
 
-`event` vaut `connected`, `new_game`, `move`, `ai_move`, `undo`, `limits` ou
-`weights`. `status` vaut `ongoing`, `black_wins`, `white_wins` ou `draw`.
-`board[i]` vaut `0` (vide), `1` (noir) ou `2` (blanc).
+`event` ∈ `connected`, `new_game`, `move`, `ai_move`, `suggestion`, `undo`,
+`limits`, `weights`.
 
-L'état part **en entier** à chaque fois : 361 entiers, quelques kilo-octets en
-local. Pas de diff, donc pas de désynchronisation possible.
+`status` ∈ `ongoing`, `black_wins`, `white_wins`, `draw`.
 
-### `progress`
+`winReason` est un **code stable**, jamais affiché tel quel : `""`,
+`five_in_a_row`, `captures`, `board_full`, `resignation`. L'interface en dérive
+un libellé (`winReasonLabel`). Le moteur ne décide pas de la langue.
 
-Poussé à chaque itération de l'approfondissement itératif, pendant que la
-recherche tourne. C'est la matière du panneau de debug et ce qui alimente le
-chronomètre exigé par le sujet.
+### `progress` — pendant la réflexion
+
+Poussé à chaque itération de l'approfondissement itératif. C'est la matière du
+panneau de debug, et ce qui alimente le chronomètre exigé par le sujet.
+**Les champs sont à plat**, pas imbriqués.
 
 ```json
 { "type": "progress",
@@ -152,94 +110,71 @@ chronomètre exigé par le sujet.
 ```
 
 `rootScores` donne le score de **chaque coup racine évalué** : c'est ce qui
-permet d'afficher une carte de chaleur sur le goban, et c'est le meilleur
-support pour expliquer le raisonnement de l'IA en soutenance.
+permet la carte de chaleur sur le goban, et le meilleur support pour expliquer
+le raisonnement de l'IA en soutenance.
 
-Pour `suggest`, le dernier `progress` porte le coup proposé dans `best` ; le
-moteur envoie ensuite un `state` inchangé pour clore l'échange.
+### Fin de recherche
+
+Il n'y a pas de message dédié : **un `state` clôt toujours une recherche**, et
+son champ `lastStats` porte la statistique finale, au format `Stats` — les
+mêmes champs que `progress`, sans le `type`.
+
+- `event: "ai_move"` — l'IA a joué ; `lastStats.best` est le coup joué.
+- `event: "suggestion"` — réponse à `suggest` ; `lastStats.best` est le coup
+  proposé, **le plateau n'a pas changé**.
+
+Entre deux recherches, `lastStats` vaut `NO_STATS` (tout à zéro, `best: -1`).
 
 ### `error`
 
 ```json
-{ "type": "error", "message": "double-trois interdit", "code": "double_three" }
+{ "type": "error", "message": "intersection already taken", "code": "occupied" }
 ```
 
 `code` ∈ `legal`, `out_of_bounds`, `occupied`, `double_three`, `game_over`,
-`not_your_turn`, `unknown`.
+`not_your_turn`, `unknown`. Le `code` est stable et machine-lisible ; le
+`message` est en anglais et ne sert qu'au debug — l'interface affiche ce
+qu'elle veut à partir du `code`.
 
-### Keep-alive
+## Maintien de connexion
 
-Le moteur envoie une **trame de contrôle ping** (opcode `0x9`) toutes les 15 s.
-Le navigateur y répond par un pong sans que l'UI ait une ligne à écrire ; côté
-C++, il faut en revanche répondre aux pings du client par un pong portant la
-même charge utile, sous peine de voir la connexion coupée.
+Le moteur envoie un `ping` (opcode `0x9`) toutes les **15 s** et ferme un
+client muet depuis **45 s**. Les pings ne partent pas pendant une recherche,
+ce qui est sans conséquence tant qu'elle reste sous 0,5 s (ADR-007).
 
-Un client muet pendant 45 s est considéré mort et sa socket est fermée.
+## Reconnexion
 
-### Fermeture et reconnexion
+`WebSocket` ne se reconnecte pas tout seul, contrairement à `EventSource` :
+`ui/src/useEngine.ts` le fait, en backoff exponentiel de 250 ms à 5 s. Le
+moteur poussant un `state` complet à chaque nouvelle connexion, une reconnexion
+vaut resynchronisation gratuite — rien à rejouer.
 
-**Contrairement à `EventSource`, `WebSocket` ne se reconnecte pas tout seul.**
-C'est le principal code supplémentaire côté UI :
+## URL et développement
+
+L'interface construit **toujours** une URL relative :
 
 ```ts
-// ui/src/useEngine.ts
-let backoff = 250;
-function connect() {
-  const socket = new WebSocket(`ws://${location.host}/ws`);
-  socket.onopen  = () => { backoff = 250; };
-  socket.onclose = () => {
-    setTimeout(connect, backoff);
-    backoff = Math.min(backoff * 2, 5000);   // 250 ms → 5 s
-  };
-}
+new WebSocket(`ws://${location.host}/ws`)
 ```
 
-Le moteur poussant l'état complet à chaque nouvelle connexion, une reconnexion
-vaut resynchronisation gratuite. Pas de rejeu d'historique, pas de numéro de
-séquence : inutile.
+Aucun port n'est écrit en dur : le moteur choisit le sien au démarrage
+(`GOMOKU_READY port=N`), et la page servie par ce même moteur tombe forcément
+dessus. C'est aussi ce qui rend le code identique dans un navigateur et dans la
+fenêtre Electron.
 
-## Déboguer sans l'interface
-
-`curl` ne parle pas WebSocket. Il faut un client dédié, par exemple
-[`websocat`](https://github.com/vi/websocat) :
-
-```bash
-websocat ws://localhost:8642/ws                       # écoute les événements
-echo '{"type":"play","idx":180}' | websocat ws://localhost:8642/ws
-```
-
-C'est le coût assumé d'ADR-004 : on perd le `curl -N` d'un flux HTTP, on gagne
-un canal symétrique. **Installez `websocat` avant la soutenance** — c'est le
-seul moyen de montrer le protocole nu si l'UI se met en travers.
-
-## Développement de l'interface
-
-En `npm run dev`, Vite sert l'UI sur `:5173` alors que le moteur est sur
-`:8642`. Le WebSocket n'est pas soumis au CORS, donc rien ne le bloquerait ;
-mais coder `ws://localhost:8642` en dur dans l'UI casserait la production, où
-le port est choisi au démarrage. La réponse reste le proxy Vite, **pas** des
-en-têtes CORS dans le C++ :
+En `npm run dev`, Vite sert l'interface sur `:5173` et relaie `/ws` vers le
+moteur — **avec `ws: true`, obligatoire** : sans cette option l'en-tête
+`Upgrade` n'est pas transmis et la socket échoue en `400`.
 
 ```ts
 // ui/vite.config.ts
 server: {
-  proxy: {
-    '/ws': { target: 'ws://localhost:8642', ws: true },
-  },
+  proxy: { '/ws': { target: 'ws://localhost:8642', ws: true } },
 }
 ```
 
-`ws: true` n'est pas optionnel : sans lui, Vite ne relaie pas l'`Upgrade` et la
-connexion échoue en `400`.
-
-Tout redevient same-origin, l'UI n'écrit que des URL relatives, et le C++ n'a
-pas une ligne de CORS à porter.
-
-Il faut donc les deux lancés :
+Il faut donc les deux lancés pendant le développement :
 
 ```bash
 ./Gomoku --no-browser & (cd ui && npm run dev)
 ```
-
-En production — navigateur sur le port du moteur, ou fenêtre Electron qui
-pointe dessus — c'est déjà la même origine : rien à configurer.

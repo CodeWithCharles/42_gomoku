@@ -31,7 +31,7 @@ export function StatusBar() {
         <span>
           {STATUS_LABEL[status]}
           {status === 'ongoing' && ` - ${toMove === 'black' ? 'noirs' : 'blancs'} (${players[toMove]})`}
-          {winReason && ` - ${winReason}`}
+          {winReason && ` - ${winReasonLabel(winReason)}`}
         </span>
       </div>
       <div className="status-line">

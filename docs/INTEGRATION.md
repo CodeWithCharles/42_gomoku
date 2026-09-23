@@ -1,7 +1,7 @@
 # Brancher le moteur C++ sur l'interface
 
-> Mode d'emploi du raccordement `src/net/` + `src/server/` à l'interface qui
-> existe déjà. Pour le *pourquoi*, voir ADR-003, ADR-004 et ADR-007 dans
+> Mode d'emploi du raccordement de `backend/src/net/` et `backend/src/server/`
+> à l'interface qui existe déjà. Pour le *pourquoi*, voir ADR-003, ADR-004 et ADR-007 dans
 > [ARCHITECTURE.md](ARCHITECTURE.md). Pour le détail du protocole,
 > [PROTOCOL.md](PROTOCOL.md). Pour la coque, [ELECTRON.md](ELECTRON.md).
 
@@ -13,7 +13,7 @@
 | `ui/src/protocol.ts` types du protocole | écrit |
 | `app/` coque Electron, les trois canaux | écrit |
 | `tools/mock-engine.mjs` moteur factice | écrit, sert de référence exécutable |
-| `src/net/`, `src/server/` | **à écrire — objet de ce document** |
+| `backend/src/net/`, `backend/src/server/` | **à écrire — objet de ce document** |
 
 `tools/mock-engine.mjs` implémente le même protocole sur le fil : handshake,
 démasquage XOR, cadrage, séquence d'événements. En cas de doute sur un octet,
@@ -35,25 +35,25 @@ pour faire passer le C++, c'est le C++ qui s'écarte du contrat.
 
 ## Découpage des fichiers
 
-La règle de dépendance d'`ARCHITECTURE.md` est stricte : **`src/net/` ne
+La règle de dépendance d'`ARCHITECTURE.md` est stricte : **`backend/src/net/` ne
 connaît pas le Gomoku**. Aucun `Board`, aucun `Player`, aucun `Game` dans ces
 fichiers.
 
 ```
-src/net/
+backend/src/net/
   sha1.cpp       SHA-1, pour le handshake uniquement
   base64.cpp     encodage seul
   http.cpp       ligne de requete, en-tetes, fichiers statiques
   ws_frame.cpp   cadrage RFC 6455 : decodage, encodage, masquage
   server.cpp     socket, boucle poll(), promotion de /ws
 
-src/server/
+backend/src/server/
   session.cpp    JSON, dispatch des commandes, serialisation des evenements
 ```
 
-`src/server/session.cpp` est le seul point de contact entre le réseau et le
+`backend/src/server/session.cpp` est le seul point de contact entre le réseau et le
 jeu. Si une règle du Gomoku vous démange dans ce fichier, elle va dans
-`src/core/rules.cpp`.
+`backend/src/core/rules.cpp`.
 
 ## Étapes, avec leur critère d'acceptation
 
@@ -149,8 +149,11 @@ Aucun de ces cas ne doit crasher ni boucler.
 
 ### Étape 4 — Session JSON
 
-`src/server/session.cpp` lit le champ `type` et dispatche. Commandes et
-événements : [PROTOCOL.md](PROTOCOL.md), rien de plus, rien de moins.
+`backend/src/server/session.cpp` lit le champ `type` et dispatche.
+
+**La référence est `ui/src/protocol.ts`**, pas ce document ni `PROTOCOL.md` :
+l'interface et le moteur factice sont écrits dessus. `PROTOCOL.md` le décrit et
+a été réaligné sur lui ; s'il en diverge un jour, c'est `PROTOCOL.md` qui a tort.
 
 Le JSON est asymétrique, et c'est une bonne nouvelle. En **lecture** : un
 `type`, parfois un `idx` entier, parfois trois entiers pour `limits`. Pas
@@ -164,13 +167,14 @@ Ordre de travail conseillé :
 3. les `error` : `out_of_bounds`, `occupied`, `game_over`, `not_your_turn`,
    `double_three`, `unknown`. La socket **reste ouverte** ;
 4. `new-game`, `undo`, `limits`, `weights` ;
-5. `suggest`, `stop`.
+5. `suggest`, `stop` — `suggest` ne joue rien : il émet ses `progress` puis un
+   `state` d'événement `suggestion`, dont `lastStats.best` porte le coup proposé.
 
 Conventions à respecter à la lettre : `idx = y * 19 + x` dans `[0, 361)`,
 `-1` pour « aucune » ; couleurs `"black"` / `"white"` ; durées en ms ;
 `board[i]` vaut `0` vide, `1` noir, `2` blanc.
 
-**Rappel de synchronisation** : `src/server/session.cpp`, `ui/src/protocol.ts`
+**Rappel de synchronisation** : `backend/src/server/session.cpp`, `ui/src/protocol.ts`
 et `PROTOCOL.md` changent **dans le même commit**.
 
 **Critère** : cliquer sur le goban pose une pierre et l'interface se met à

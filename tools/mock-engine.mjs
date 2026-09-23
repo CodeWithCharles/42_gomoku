@@ -91,7 +91,10 @@ function newGame(config, players) {
     },
     limits: { maxDepth: 10, budgetMs: 450, maxCandidates: 20 },
     history: [],
-    lastStats: {},
+    lastStats: {
+      depth: 0, score: 0, best: -1, nodes: 0, leaves: 0,
+      cutoffs: 0, ttHits: 0, elapsedMs: 0, pv: [], rootScores: [],
+    },
   };
 }
 
@@ -242,7 +245,9 @@ function runSearch(onDone) {
       pv: rootScores.slice(0, 4).map((r) => r.idx),
       rootScores: rootScores.slice(0, 8),
     });
-    game.lastStats = { depth, nodes, elapsedMs: Date.now() - started };
+    push(stats);
+    const { type, ...rest } = stats;
+    game.lastStats = rest;
     if (depth >= total) {
       const best = search.best;
       search = null;
@@ -331,7 +336,7 @@ function handleCommand(raw) {
     }
 
     case 'suggest':
-      runSearch(() => push(stateEvent(game, 'move')));
+      runSearch(() => push(stateEvent(game, 'suggestion')));
       break;
 
     case 'undo': {
