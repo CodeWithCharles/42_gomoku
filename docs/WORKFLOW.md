@@ -15,7 +15,7 @@ peuvent y toucher, mais via une PR relue par le propriétaire.
 
 ### Le module 4 est surchargé, sachez-le
 
-Il porte le Makefile, la couche HTTP/SSE, le protocole, l'UI React **et** la
+Il porte le Makefile, la couche HTTP/WebSocket, le protocole, l'UI React **et** la
 coque Electron. C'est plus que les trois autres. Deux conséquences :
 
 - il démarre en premier (J0 débloque tout le monde) ;
@@ -68,7 +68,7 @@ main        ← toujours compilable, tests verts
 |---|---|---|
 | **J0** — fondations | `make` produit `Gomoku` et ne relink pas ; les en-têtes de `include/gomoku/` compilent ; `make test` tourne (même à vide) | 4 + 1 |
 | **J1** — règles exactes | toute la batterie `tests/` verte, **endgame capture comprise** | 1 |
-| **J2** — jouable | HTTP + SSE, protocole, goban React, chrono, hotseat, suggestion | 4 |
+| **J2** — jouable | HTTP + WebSocket, protocole, goban React, chrono, hotseat, suggestion | 4 |
 | **J3** — heuristique crédible | table de motifs, éval incrémentale ; l'IA bloque les quatre, voit les trois ouverts, joue les captures | 3 |
 | **J4** — profondeur 10 | table de transposition, killers + history, PVS, menaces forcées → `make bench` `OK` partout sous 450 ms | 2 |
 | **J5** — coque Electron | `make app`, fenêtre native, négociation du port, process enfant tué proprement — et `Gomoku` toujours autonome. Guide : [ELECTRON.md](ELECTRON.md) | 4 |

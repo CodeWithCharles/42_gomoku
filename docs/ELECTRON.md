@@ -19,8 +19,8 @@ classique est de tout faire passer par l'IPC d'Electron.
    │       │                       │          │
    └───────┼───────────────────────┼──────────┘
            │                       │
-   ① spawn / stdout / signaux      │ ② HTTP POST + SSE
-      (node:child_process)         │    (fetch + EventSource)
+   ① spawn / stdout / signaux      │ ② WebSocket
+      (node:child_process)         │    (new WebSocket('/ws'))
            │                       │
            ▼                       ▼
      ┌─────────────────────────────────┐
@@ -32,24 +32,24 @@ classique est de tout faire passer par l'IPC d'Electron.
 | canal | entre | technologie | ce qui y passe |
 |---|---|---|---|
 | **①** | main ↔ moteur | `node:child_process` + stdout | démarrage, découverte du port, mort du process |
-| **②** | renderer ↔ moteur | `fetch` + `EventSource` | **tout le jeu** — coups, état, progression de la recherche |
+| **②** | renderer ↔ moteur | `WebSocket` | **tout le jeu** — coups, état, progression de la recherche |
 | **③** | main ↔ renderer | `contextBridge` + `ipcRenderer` | uniquement ce que l'URL ne dit pas : « le moteur est mort » |
 
 **Le trafic de jeu ne passe jamais par Electron.** Le renderer parle
-directement au moteur en HTTP, exactement comme un navigateur ordinaire. C'est
+directement au moteur, exactement comme un navigateur ordinaire. C'est
 ce qui fait que `./Gomoku` + Firefox reste une démonstration valide (ADR-005) et
 que l'UI est testable sans lancer Electron.
 
 ### Pourquoi le renderer charge `http://` et pas `file://`
 
-Si la fenêtre chargeait `file://…/index.html`, son origine serait `null` et
-chaque `fetch` vers `localhost` deviendrait cross-origin : retour du CORS, et
-`EventSource` refuserait de se connecter.
+Si la fenêtre chargeait `file://…/index.html`, son origine serait `null` :
+`location.host` serait vide, et l'UI n'aurait plus aucun moyen de construire
+l'URL de la socket sans coder le port en dur.
 
 En chargeant `http://127.0.0.1:PORT/`, la page est servie par le moteur
-lui-même : **même origine**, donc `fetch('/api/play')` et
-`new EventSource('/events')` fonctionnent sans une ligne de configuration.
-Le code de l'UI est rigoureusement identique en navigateur et dans Electron.
+lui-même : **même origine**, donc `new WebSocket('ws://' + location.host + '/ws')`
+fonctionne sans une ligne de configuration. Le code de l'UI est rigoureusement
+identique en navigateur et dans Electron.
 
 ## Canal ① — main ↔ moteur
 
@@ -231,20 +231,22 @@ Rien de spécifique à Electron : c'est exactement le protocole de
 
 ```ts
 // ui/src/useEngine.ts — identique en navigateur et dans Electron.
-const events = new EventSource('/events');
-events.addEventListener('state',    (e) => applyState(JSON.parse(e.data)));
-events.addEventListener('progress', (e) => applyProgress(JSON.parse(e.data)));
+const socket = new WebSocket(`ws://${location.host}/ws`);
 
-await fetch('/api/play', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ idx }),
-});
+socket.onmessage = (e) => {
+  const msg = JSON.parse(e.data);
+  if (msg.type === 'state')    applyState(msg);
+  if (msg.type === 'progress') applyProgress(msg);
+  if (msg.type === 'error')    showError(msg);
+};
+
+socket.send(JSON.stringify({ type: 'play', idx }));
 ```
 
-Les URL relatives sont le point clé : en `npm run dev` le proxy Vite les
-renvoie vers `:8642`, en production elles tapent le moteur qui sert la page.
-**Ne codez jamais `http://localhost:8642` en dur dans l'UI.**
+`location.host` est le point clé : en `npm run dev` le proxy Vite relaie `/ws`
+vers `:8642`, en production la page est servie par le moteur lui-même.
+**Ne codez jamais `ws://localhost:8642` en dur dans l'UI** — le port est choisi
+au démarrage, pas à l'écriture du code.
 
 ## Canal ③ — main ↔ renderer
 
@@ -282,7 +284,9 @@ vers le main process.
 - Le preload expose une surface nommée, pas `ipcRenderer`.
 - *Optionnel* : tout process local peut parler au port. Si vous voulez fermer
   ça, faites imprimer un jeton par le moteur sur la ligne `GOMOKU_READY`,
-  passez-le en query string au `loadURL`, et exigez-le en en-tête sur `/api/*`.
+  passez-le en query string au `loadURL`, et exigez-le en query string sur
+  `/ws` (un `WebSocket` de navigateur ne peut pas porter d'en-tête custom).
+  Vérifier l'en-tête `Origin` au handshake est l'autre garde-fou, gratuit.
   Hors périmètre du sujet — à ne faire que si tout le reste est parfait.
 
 ## Mise en place
@@ -331,5 +335,6 @@ gère la branche `app.isPackaged` de `enginePath()`.
 | Le moteur s'arrête aussitôt démarré | watchdog stdin actif alors que `stdin` est `/dev/null`, sans le garde `--parent-watchdog` |
 | `make app` ne fait rien | cible homonyme du dossier `app/`, `.PHONY` manquant |
 | `Error: spawn ENOENT` | binaire absent : `make` avant `make app` |
-| CORS bloqué en dev | proxy Vite non configuré (voir `docs/PROTOCOL.md`) |
-| `EventSource` se reconnecte en boucle | le moteur ferme le flux — il doit garder la connexion ouverte et envoyer `: ping` toutes les 15 s |
+| La socket échoue en `400` en dev | proxy Vite sans `ws: true` — l'`Upgrade` n'est pas relayé (voir `docs/PROTOCOL.md`) |
+| La socket se rouvre en boucle | le moteur ferme la connexion — il doit la garder ouverte, répondre aux pings par un pong et envoyer les siens toutes les 15 s |
+| Le moteur lit du charabia dans les commandes | démasquage XOR oublié : toute trame client → serveur est masquée (RFC 6455) |

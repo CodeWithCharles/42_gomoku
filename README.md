@@ -9,9 +9,9 @@ captures + interdiction du double-trois), avec une interface web.
 
 ## La forme visée
 
-Un binaire C++ autonome, `Gomoku`, qui sert l'interface en HTTP et pousse ses
-événements en SSE. Une coque Electron **optionnelle** par-dessus, pour avoir
-une vraie fenêtre d'application.
+Un binaire C++ autonome, `Gomoku`, qui sert l'interface en HTTP et dialogue
+avec elle en WebSocket. Une coque Electron **optionnelle** par-dessus, pour
+avoir une vraie fenêtre d'application.
 
 ```
 make       → Gomoku           binaire C++ ; jouable dans un navigateur ordinaire
@@ -43,7 +43,7 @@ src/core/         plateau, règles, génération de coups        (module 1)
 src/eval/         heuristique                                 (module 3)
 src/search/       minimax / alpha-bêta                        (module 2)
 src/game/         arbitrage de la partie                      (partagé)
-src/net/          HTTP + SSE + JSON, sans dépendance          (module 4)
+src/net/          HTTP + WebSocket + JSON, sans dépendance    (module 4)
 src/server/       protocole moteur ↔ interface                (module 4)
 ui/               interface React + TypeScript                (module 4)
 app/              coque Electron                              (module 4)
@@ -55,7 +55,7 @@ docs/             architecture, protocole, règles, organisation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — découpage, ADR, chemin critique
 - [docs/RULES.md](docs/RULES.md) — les règles et leurs cas limites
-- [docs/PROTOCOL.md](docs/PROTOCOL.md) — HTTP + SSE, endpoints, événements
+- [docs/PROTOCOL.md](docs/PROTOCOL.md) — WebSocket, commandes, événements
 - [docs/ELECTRON.md](docs/ELECTRON.md) — la coque Electron et ses trois canaux de communication
 - [docs/WORKFLOW.md](docs/WORKFLOW.md) — répartition à 4, git, jalons
 

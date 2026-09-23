@@ -18,7 +18,7 @@
 ┌──────────────────────────────────────────────┐
 │  Gomoku   (un seul binaire C++)              │  make — le livrable du sujet
 │                                              │
-│    src/net/      HTTP + SSE        ← module 4│
+│    src/net/      HTTP + WebSocket  ← module 4│
 │    src/server/   protocole JSON    ← module 4│
 │         │                                    │
 │    src/game/     arbitrage         ← partagé │
@@ -31,8 +31,8 @@
 └──────────────────────────────────────────────┘
 ```
 
-`Gomoku` sert lui-même `ui/dist` et pousse ses événements en SSE. Electron
-n'est qu'une fenêtre par-dessus : **le binaire reste jouable seul**.
+`Gomoku` sert lui-même `ui/dist` et pousse ses événements en WebSocket.
+Electron n'est qu'une fenêtre par-dessus : **le binaire reste jouable seul**.
 
 ## Règle de dépendance
 
@@ -75,25 +75,49 @@ probablement l'évaluation, pas la représentation.
 
 ### ADR-003 — Zéro dépendance C++ tierce
 Le sujet impose un Makefile ; y greffer CMake pour tirer une bibliothèque HTTP
-coûte plus cher que ce qu'on écrit à la main. Avec SSE (ADR-004) la couche
-réseau se réduit à : parsing de requête HTTP, service de fichiers statiques,
-flux `text/event-stream`, et un petit JSON. Pas de handshake, pas de SHA-1,
-pas de framing binaire.
+coûte plus cher que ce qu'on écrit à la main. La couche réseau se réduit à :
+parsing de requête HTTP, service de fichiers statiques, handshake WebSocket
+(SHA-1 + base64), framing RFC 6455, et un petit JSON.
+Le WebSocket (ADR-004) est ce qui coûte le plus cher ici : SHA-1 est à écrire
+à la main, puisque le tirer d'OpenSSL serait précisément la dépendance qu'on
+refuse. C'est une soixantaine de lignes mécaniques et testables contre des
+vecteurs connus — à faire une fois, à ne plus jamais toucher.
 Le dépôt se compile avec `make` sur une machine nue, et il n'y a pas de
 submodule à oublier le jour de la soutenance.
 
-### ADR-004 — SSE plutôt que WebSocket
-Le jeu est au tour par tour : une commande = une requête `POST`. Le seul besoin
-temps réel est de **pousser** la progression de la recherche (profondeur, nœuds,
-meilleur coup courant) pendant qu'elle calcule — c'est le chronomètre et le
-panneau de debug exigés par le sujet. SSE fait exactement ça, et rien de plus.
+### ADR-004 — WebSocket plutôt que SSE
+Le moteur et l'UI ont besoin des deux sens : le client envoie des commandes, le
+moteur pousse l'état et la progression de la recherche (profondeur, nœuds,
+meilleur coup courant) pendant qu'il calcule — c'est le chronomètre et le
+panneau de debug exigés par le sujet. WebSocket porte les deux sur **une seule
+socket ordonnée**, ce qui supprime par construction toute course entre une
+réponse HTTP et un événement poussé.
 
-Ce que ça économise par rapport à WebSocket : le handshake
-`Sec-WebSocket-Accept` (donc SHA-1 + base64), le masquage des trames, les
-longueurs sur 7/16/64 bits, le ping/pong. Environ 200 lignes de C++ contre 60.
-Ce que ça coûte : lire le corps d'une requête `POST` (`Content-Length`), une
-trentaine de lignes.
+Le gain décisif n'est pas le débit, dérisoire ici, c'est le **canal montant
+permanent**. Une socket déjà ouverte se sonde depuis le callback de progression
+de la recherche : c'est la seule voie praticable vers un bouton « Stop » qui
+agisse pendant le calcul (voir la limite d'ADR-007). Avec un `POST`, il aurait
+fallu accepter et parser une requête HTTP entière au milieu du minimax.
 
+Ce que ça coûte, et il faut l'assumer :
+
+- le handshake `Sec-WebSocket-Accept`, donc SHA-1 et base64 écrits à la main
+  (ADR-003) ;
+- le framing RFC 6455 : masquage XOR obligatoire des trames client → serveur,
+  longueurs sur 7/16/64 bits, trames de contrôle ping/pong/close. Environ
+  200 lignes de C++ contre 60 pour un flux `text/event-stream` ;
+- du parsing binaire là où SSE n'avait que du texte ligne à ligne. Le sujet
+  sanctionne tout crash par un 0 : cette couche se teste, y compris sur des
+  trames tronquées ou aberrantes, avant d'être considérée comme acquise ;
+- la perte du `curl` : déboguer le protocole nu demande `websocat`, à installer
+  avant la soutenance ;
+- la reconnexion automatique d'`EventSource`, à réécrire en TypeScript (une
+  dizaine de lignes avec backoff, voir `docs/PROTOCOL.md`).
+
+**Rejeté** : SSE plus `POST /api/*` — deux canaux asymétriques, aucun moyen
+d'être lu pendant la recherche, mais nettement moins de C++ à écrire et
+déboguable au `curl`. C'était la décision initiale ; elle a été renversée au
+profit du canal montant.
 **Rejeté** : le polling (débogage du chrono moins fluide, bruit réseau inutile).
 
 ### ADR-005 — Electron est une coque optionnelle
@@ -141,16 +165,18 @@ commiter `ui/dist` dans le même commit. Un `dist` périmé est un bug silencieu
 ### ADR-007 — Serveur mono-thread
 Un seul client local, jeu au tour par tour : ni concurrence ni backpressure à
 gérer. Une boucle `poll()`, et la recherche tourne sur le thread du serveur en
-poussant sa progression par un callback qui écrit directement sur le descripteur
-du flux SSE.
+poussant sa progression par un callback qui écrit directement une trame sur le
+descripteur de la socket WebSocket.
 
-Le `POST /api/play` reste donc en attente pendant tout le calcul de l'IA, ce qui
-est sans importance : l'UI n'attend pas sa réponse, elle écoute le flux.
+L'UI n'attend aucun accusé de réception : elle a envoyé sa commande et écoute la
+socket. Rien ne bloque de son côté pendant le calcul de l'IA.
 
-**Limite connue** : pendant la recherche, le serveur ne lit aucune requête
-entrante — le bouton « Stop » n'agit donc qu'entre deux coups. Le jour où l'on
-veut un vrai Stop ou un mode spectateur, il faudra un thread de recherche et
-une file de messages réveillant `poll()` par self-pipe.
+**Limite connue** : pendant la recherche, le serveur ne lit aucun message
+entrant — le bouton « Stop » n'agit donc qu'entre deux coups. La socket étant
+déjà ouverte, la levée est plus simple qu'avec un transport requête/réponse :
+il suffit de sonder le descripteur depuis le callback de progression. Pour un
+vrai Stop coopératif ou un mode spectateur, il faudra tout de même un thread de
+recherche et une file de messages réveillant `poll()` par self-pipe.
 
 ### ADR-008 — `Game` est le seul arbitre
 Deux chemins distincts, volontairement :
