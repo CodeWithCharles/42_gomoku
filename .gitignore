@@ -21,3 +21,6 @@ release/
 *.swp
 .DS_Store
 compile_commands.json
+
+# build system
+*/Makefile.cfg

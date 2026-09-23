@@ -1,0 +1,58 @@
+# ============================================================================
+#  mise - outils de developpement.
+#
+#  REGLE ABSOLUE : `make` ne doit JAMAIS dependre de mise.
+#  Meme logique que npm et Electron (ADR-005) : le correcteur clone le depot,
+#  tape `make`, et ca compile avec le g++ de la machine.
+#  Consequence : toutes les taches ci-dessous DELEGUENT au Makefile.
+#  La logique de build vit dans le Makefile, jamais ici.
+#
+#  node/ui viendront plus tard, une fois le front installe a la main.
+# ============================================================================
+
+min_version = "2025.1.0"
+
+[env]
+CXX = "g++"
+
+[tools]
+"pipx:clang-format" = "23.1.1"
+
+[settings]
+lockfile = true
+
+[tasks.setup]
+description = "Installe les outils epingles (une fois apres le clone)"
+run = "mise install"
+
+[tasks.build]
+description = "Compile Gomoku"
+run = "make -j$(nproc)"
+
+[tasks.rebuild]
+description = "Recompile de zero"
+run = "make re -j$(nproc)"
+
+[tasks.test]
+description = "Batterie de tests des regles"
+run = "make test"
+
+[tasks.bench]
+description = "Profondeur atteinte et noeuds/s"
+run = "make bench"
+
+[tasks.debug]
+description = "Build ASan + UBSan"
+run = "make debug"
+
+[tasks.fmt]
+description = "Reformate les sources C++"
+run = "make format"
+
+[tasks.fmt-check]
+description = "Echoue si une source n'est pas formatee"
+run = "make format-check"
+
+[tasks.check]
+description = "Le portail avant tout push"
+depends = ["build", "test", "fmt-check"]
