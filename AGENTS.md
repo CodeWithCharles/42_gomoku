@@ -58,7 +58,7 @@ modification du moteur.
 - `.clang-format` fait foi (`make format`).
 - Les en-têtes de `include/gomoku/` sont un **contrat entre quatre personnes** :
   ajouter une fonction est libre, en changer ou en retirer une se discute.
-- Commentaires en français, **sans accents dans le code C++** (les sources
+- Commentaires en anglais pour le C++, français pour le reste, **sans accents dans le code C++** (les sources
   restent en ASCII pur) ; les accents sont autorisés dans `docs/`, `README.md`
   et `ui/`.
 - Les noms de fonctions et variables restent en anglais.
