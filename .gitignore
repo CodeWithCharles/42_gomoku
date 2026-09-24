@@ -16,7 +16,7 @@ app/dist/
 release/
 
 # Editeurs / OS
-.vscode/
+# .vscode/
 .idea/
 *.swp
 .DS_Store
