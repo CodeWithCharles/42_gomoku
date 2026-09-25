@@ -149,7 +149,7 @@ void Session::onText(net::ClientId client, const std::string& text) {
 			engine_.requestStop();
 		} else {
 			const std::lock_guard<std::mutex> lock(mutex_);
-			pushError(client, "unknown command: " + type, "unkown");
+			pushError(client, "unknown command: " + type, "unknown");
 		}
 	} catch (const std::exception& error) {
 		const std::lock_guard<std::mutex> lock(mutex_);
