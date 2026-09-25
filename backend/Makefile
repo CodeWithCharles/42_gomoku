@@ -15,9 +15,9 @@ include Makefile.vars ../Makefile.msg
 # -------------------------------- Main build -------------------------------- #
 all-gomoku: $(NAME_PATH)
 
-$(NAME_PATH): $(OBJS_CORE) $(OBJS_MAIN)
+$(NAME_PATH): $(OBJS_CORE) $(OBJS_C) $(OBJS_MAIN)
 	$(call qcmd,$(MKDIR) -p $(@D))
-	$(call bcmd,ld,$(NAME),$(LD) -o $@ $(OBJS_CORE) $(OBJS_MAIN) $(LDFLAGS))
+	$(call bcmd,ld,$(NAME),$(LD) -o $@ $(OBJS_CORE) $(OBJS_C) $(OBJS_MAIN) $(LDFLAGS))
 	$(call omsg,$(NAME) [$(PROFILE)])
 
 $(OBJDIR)/%.cpp.o: %.cpp
@@ -51,17 +51,17 @@ mrproper: fclean
 re: fclean all
 
 # ----------------------------------- Tests ---------------------------------- #
-$(TEST_PATH): $(OBJS_CORE) $(OBJS_TEST)
+$(TEST_PATH): $(OBJS_CORE) $(OBJS_C) $(OBJS_TEST)
 	$(call qcmd,$(MKDIR) -p $(@D))
-	$(call bcmd,ld,$(TEST_NAME),$(LD) -o $@ $(OBJS_CORE) $(OBJS_TEST) $(LDFLAGS))
+	$(call bcmd,ld,$(TEST_NAME),$(LD) -o $@ $(OBJS_CORE) $(OBJS_C) $(OBJS_TEST) $(LDFLAGS))
 
 test: $(TEST_PATH)
 	$(call qcmd,$(TEST_PATH))
 
 # ----------------------------------- Bench ---------------------------------- #
-$(BENCH_PATH): $(OBJS_CORE) $(OBJS_BENCH)
+$(BENCH_PATH): $(OBJS_CORE) $(OBJS_C) $(OBJS_BENCH)
 	$(call qcmd,$(MKDIR) -p $(@D))
-	$(call bcmd,ld,$(BENCH_NAME),$(LD) -o $@ $(OBJS_CORE) $(OBJS_BENCH) $(LDFLAGS))
+	$(call bcmd,ld,$(BENCH_NAME),$(LD) -o $@ $(OBJS_CORE) $(OBJS_C) $(OBJS_BENCH) $(LDFLAGS))
 
 bench: $(BENCH_PATH)
 	$(call qcmd,$(BENCH_PATH))

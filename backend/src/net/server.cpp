@@ -174,7 +174,7 @@ bool Server::start() {
 
 	for (int attempt = 0; attempt < kPortAttempts; ++attempt) {
 		const uint16_t candidate = static_cast<uint16_t>(impl_->port + attempt);
-		const std::string listening = "127.0.0.1" + std::to_string(candidate);
+		const std::string listening = "127.0.0.1:" + std::to_string(candidate);
 		const char* options[] = {
 			"document_root", impl_->docRoot.c_str(), "listening_ports",			 listening.c_str(),
 			"num_threads",	 kWorkerThreads,		 "enable_directory_listing", "no",
