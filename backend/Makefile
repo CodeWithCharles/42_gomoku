@@ -24,6 +24,10 @@ $(OBJDIR)/%.cpp.o: %.cpp
 	$(call qcmd,$(MKDIR) -p $(@D))
 	$(call bcmd,cxx,$<,$(CXX) -c $(CXXFLAGS) -o $@ $<)
 
+$(OBJDIR)/%.c.o: %.c
+	$(call qcmd,$(MKDIR) -p $(@D))
+	$(call bcmd,cc,$<,$(CC) -c $(CFLAGS) -o $@ $<)
+
 # ------------------------------- Checks config ------------------------------ #
 # Absent d'un clone frais : on le genere au lieu d'echouer, pour qu'un simple
 # `make` suffise. make relance ensuite automatiquement la lecture des includes.
