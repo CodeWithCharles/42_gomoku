@@ -1,4 +1,5 @@
 import { useGame } from '../engine/GameContext';
+import { winReasonLabel } from '../protocol';
 import './StatusBar.css';
 
 const STATUS_LABEL: Record<string, string> = {

@@ -10,8 +10,7 @@
     "moduleDetection": "force",
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
-    "noEmit": true,
-    "types": ["node"]
+    "noEmit": true
   },
   "include": ["vite.config.ts"]
 }

@@ -1,12 +1,12 @@
 import { createContext, useContext } from 'react';
-import type { Cell, Color, Command, Config, ErrorEvent, HistoryEntry, Limits, Pairs, Players, Status } from '../protocol';
+import type { Cell, Color, Command, Config, ErrorEvent, HistoryEntry, Limits, Pairs, Players, Status, WinReason } from '../protocol';
 import type { ConnectionState } from '../useEngine';
 
 export interface GameValue {
   board: Cell[];
   toMove: Color;
   status: Status;
-  winReason: string;
+  winReason: WinReason;
   pairs: Pairs;
   players: Players;
   config: Config;
