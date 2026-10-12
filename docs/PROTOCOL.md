@@ -42,7 +42,7 @@ possible.
 | `play` | `idx` (ou `x` + `y`) | joue un coup pour le joueur au trait |
 | `suggest` | — | lance une recherche **sans** jouer le coup |
 | `undo` | — | revient à une position où c'est à un humain de jouer |
-| `limits` | `maxDepth`, `budgetMs`, `maxCandidates` | règle la recherche |
+| `limits` | `maxDepth`, `budgetMs`, `maxCandidates` | règle la recherche ; `budgetMs` est une **moyenne** (voir [Budget de temps](#budget-de-temps)) |
 | `weights` | `weights` | règle l'heuristique à chaud |
 | `stop` | — | demande l'arrêt de la recherche en cours |
 
@@ -58,6 +58,28 @@ possible.
 ```
 
 Une commande fautive donne un `error`. **La socket reste ouverte**, toujours.
+
+### Budget de temps
+
+Le sujet exige moins de 0,5 s **en moyenne** par coup, pas à chaque coup.
+`budgetMs` (450 par défaut) est donc la **moyenne visée sur la partie**, gérée
+par une banque de temps dans `Session` :
+
+- après `n` recherches ayant coûté `dépensé` ms au total, la suivante reçoit
+  `budgetMs × (n + 1) − dépensé` ;
+- ce budget est borné entre `budgetMs / 2` et `2 × budgetMs` : un coup ne dure
+  jamais plus de 0,9 s avec les réglages par défaut ;
+- la banque repart à zéro à chaque `new-game`. `suggest` y est compté, `undo`
+  ne rembourse rien.
+
+Un coup rapide (coup forcé, profondeur maximale atteinte tôt) laisse donc du
+crédit au suivant. Par récurrence, **la moyenne courante ne dépasse jamais
+`budgetMs`**, à quelques millisecondes près : la recherche ne consulte
+l'horloge que tous les 1 024 nœuds.
+
+L'état publié (`limits.budgetMs`) montre toujours la moyenne visée, jamais le
+budget accordé au coup en cours. Le temps réellement consommé est
+`elapsedMs`, dans `progress` et `lastStats`.
 
 ## Moteur → client
 

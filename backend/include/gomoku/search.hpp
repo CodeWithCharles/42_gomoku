@@ -79,6 +79,7 @@ class Engine {
 
   private:
 	Score negamax(Game& game, int depth, int ply, Score alpha, Score beta);
+	Score searchChild(Game& game, int depth, int ply, Score alpha, Score beta, bool first);
 	bool outOfTime() const;
 	uint64_t positionKey(const Game& game) const;
 	TTEntry* probe(uint64_t key);

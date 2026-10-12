@@ -68,13 +68,6 @@ struct Server::Impl {
 		clients.erase(id);
 	}
 
-	// Connection behind `id`, or nullptr when it is gone.
-	mg_connection* connectionof(ClientId id) {
-		const std::lock_guard<std::mutex> lock(mutex);
-		const auto found = clients.find(id);
-		return found == clients.end() ? nullptr : found->second.connection;
-	}
-
 	// Ever connected client, snapshotted so a handler may disconnect one.
 	std::vector<ClientId> everyClient() {
 		const std::lock_guard<std::mutex> lock(mutex);
@@ -218,13 +211,17 @@ void Server::onText(TextHandler handler) {
 	impl_->onText = std::move(handler);
 }
 
-// Sends one text frame, silently dropping it if the client already left.
+// Sends one text frame, silently dropping it if the client already left. The
+// lock is held during the write: the close handler takes it too, so civetweb
+// cannot release the connection under a writer from another thread.
 void Server::sendText(ClientId client, const std::string& text) {
-	mg_connection* connection = impl_->connectionof(client);
-	if (connection == nullptr) {
+	const std::lock_guard<std::mutex> lock(impl_->mutex);
+	const auto found = impl_->clients.find(client);
+	if (found == impl_->clients.end()) {
 		return;
 	}
-	mg_websocket_write(connection, MG_WEBSOCKET_OPCODE_TEXT, text.data(), text.size());
+	mg_websocket_write(found->second.connection, MG_WEBSOCKET_OPCODE_TEXT, text.data(),
+					   text.size());
 }
 
 // Sends one text frame to every connected client.

@@ -14,6 +14,7 @@ namespace gomoku {
 using LineWindow = uint32_t;
 inline constexpr int kWindowRadius = 4;
 inline constexpr int kWindowCells = 2 * kWindowRadius + 1;
+inline constexpr int kLinesPerAxis = 2 * kBoardSize - 1;
 
 enum class CellCode : uint32_t { Empty = 0, Own = 1, Foe = 2, Wall = 3 };
 
@@ -57,7 +58,10 @@ class Board {
 	bool hasNeighbor(Idx i, int radius) const;
 
   private:
+	void setLines(Idx i, Player p);
+
 	std::array<Player, kCellCount> cells_{};
+	std::array<std::array<uint64_t, kLinesPerAxis>, 4> lines_{};
 	std::array<int, 2> perPlayer_{};
 	int stoneCount_ = 0;
 	uint64_t hash_ = 0;

@@ -202,7 +202,7 @@ Score Engine::negamax(Game& game, int depth, int ply, Score alpha, Score beta) {
 		const GameStatus status = game.terminalAfter(undo);
 		const Score value = status != GameStatus::Ongoing
 								? terminalValue(status, undo.player, ply)
-								: -negamax(game, depth - 1, ply + 1, -beta, -alpha);
+								: searchChild(game, depth - 1, ply + 1, alpha, beta, k == 0);
 		game.unmakeMove(undo);
 
 		if (value > best) {
@@ -223,6 +223,20 @@ Score Engine::negamax(Game& game, int depth, int ply, Score alpha, Score beta) {
 	}
 	store(key, depth, ply, best, alpha0, beta, bestMove);
 	return best;
+}
+
+// Searches the child reached by the move just played, `depth` and `ply` being
+// the child's. The first child gets the full window; the others a null window
+// that only proves they are no better, re-searched in full when that fails.
+Score Engine::searchChild(Game& game, int depth, int ply, Score alpha, Score beta, bool first) {
+	if (first) {
+		return -negamax(game, depth, ply, -beta, -alpha);
+	}
+	const Score scout = -negamax(game, depth, ply, -alpha - 1, -alpha);
+	if (scout <= alpha || scout >= beta) {
+		return scout;
+	}
+	return -negamax(game, depth, ply, -beta, -alpha);
 }
 
 // Iterative deepening from the root, publishing a snapshot per completed depth.
@@ -269,7 +283,7 @@ SearchResult Engine::search(Game& game, const SearchLimits& limits, const Progre
 			const GameStatus status = game.terminalAfter(undo);
 			const Score value = status != GameStatus::Ongoing
 									? terminalValue(status, undo.player, 0)
-									: -negamax(game, depth - 1, 1, -kScoreInf, -alpha);
+									: searchChild(game, depth - 1, 1, alpha, kScoreInf, k == 0);
 			game.unmakeMove(undo);
 
 			if (k > 0 && outOfTime()) {

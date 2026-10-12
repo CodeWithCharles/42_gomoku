@@ -11,6 +11,9 @@
 namespace gomoku::server {
 namespace {
 
+inline constexpr int64_t kBudgetCap = 2;
+inline constexpr std::chrono::milliseconds kAiPace{300};
+
 using nlohmann::json;
 
 // Protocol name of a colour.
@@ -109,60 +112,145 @@ bool Seats::isAi(Player p) const {
 
 Session::Session(net::Server& server) : server_(server) {}
 
-// Wires the connection and message handlers onto the server.
+// Stops the worker: interrupts the search, wakes the queue and joins.
+Session::~Session() {
+	{
+		const std::lock_guard<std::mutex> lock(queueMutex_);
+		closing_ = true;
+	}
+	interruptAi();
+	queueReady_.notify_all();
+	if (worker_.joinable()) {
+		worker_.join();
+	}
+}
+
+// Wires the connection and message handlers onto the server, then starts the
+// worker thread that owns the game.
 void Session::install() {
 	server_.onConnect([this](net::ClientId client) { onConnect(client); });
 	server_.onText([this](net::ClientId client, const std::string& text) { onText(client, text); });
+	worker_ = std::thread([this] { workerLoop(); });
 }
 
-// A client just finished the handshake: hand it the full state.
+// A client just finished the handshake: the worker will hand it the state.
 void Session::onConnect(net::ClientId client) {
-	const std::lock_guard<std::mutex> lock(mutex_);
-	pushState(client, "connected");
+	try {
+		enqueue(Job{JobKind::Connect, client, {}});
+	} catch (...) {
+		return;
+	}
 }
 
-// Dispatches one command. nothing may escape from here: an exception crossing
-// a civetweb callback would take the whole engine down.
+// Routes one frame, on a civetweb thread. Only `stop` acts here; every other
+// command goes to the worker, new-game and undo interrupting the AI first.
+// Nothing may escape: an exception crossing a civetweb callback is fatal.
 void Session::onText(net::ClientId client, const std::string& text) {
 	try {
 		const json command = parseCommand(text);
-		if (command.is_discarded() || !command.is_object()) {
-			const std::lock_guard<std::mutex> lock(mutex_);
-			pushError(client, "malformed JSON", "unknown");
+		const json type = command.is_object() ? command.value("type", json{}) : json{};
+		if (type == "stop") {
+			interruptAi();
 			return;
 		}
-		const std::string type = command.value("type", std::string{});
+		if (type == "new-game" || type == "undo") {
+			interruptAi();
+		}
+		enqueue(Job{JobKind::Command, client, text});
+	} catch (...) {
+		return;
+	}
+}
 
-		if (type == "new-game") {
-			newGame(client, text);
-		} else if (type == "play") {
-			play(client, text);
-		} else if (type == "suggest") {
-			suggest(client);
-		} else if (type == "undo") {
-			undo(client);
-		} else if (type == "limits") {
-			setLimits(client, text);
-		} else if (type == "weights") {
-			setWeights(client, text);
-		} else if (type == "stop") {
-			engine_.requestStop();
-		} else {
-			const std::lock_guard<std::mutex> lock(mutex_);
-			pushError(client, "unknown command: " + type, "unknown");
+// Appends a job for the worker, unless the session is closing.
+void Session::enqueue(Job job) {
+	{
+		const std::lock_guard<std::mutex> lock(queueMutex_);
+		if (closing_) {
+			return;
+		}
+		jobs_.push_back(std::move(job));
+	}
+	queueReady_.notify_one();
+}
+
+// Worker thread: runs the queued jobs one by one until the session closes.
+void Session::workerLoop() {
+	std::unique_lock<std::mutex> lock(queueMutex_);
+	for (;;) {
+		queueReady_.wait(lock, [this] { return closing_ || !jobs_.empty(); });
+		if (closing_) {
+			return;
+		}
+		const Job job = std::move(jobs_.front());
+		jobs_.pop_front();
+		lock.unlock();
+		run(job);
+		lock.lock();
+	}
+}
+
+// Runs one job on the worker. Nothing may escape: an exception leaving a
+// thread calls std::terminate.
+void Session::run(const Job& job) {
+	try {
+		switch (job.kind) {
+			case JobKind::Connect:
+				pushState(job.client, "connected");
+				break;
+			case JobKind::Command:
+				dispatch(job.client, job.text);
+				break;
+			case JobKind::AiTurn:
+				aiTurn(job.client);
+				break;
 		}
 	} catch (const std::exception& error) {
-		const std::lock_guard<std::mutex> lock(mutex_);
-		pushError(client, error.what(), "unknown");
+		pushError(job.client, error.what(), "unknown");
 	} catch (...) {
-		const std::lock_guard<std::mutex> lock(mutex_);
-		pushError(client, "internal error", "unknown");
+		pushError(job.client, "internal error", "unknown");
+	}
+}
+
+// Stops the running search and keeps the AI from starting another move. Safe
+// from any thread. The flag is set under the queue lock so a worker about to
+// pause between two AI moves cannot miss the wake-up.
+void Session::interruptAi() {
+	{
+		const std::lock_guard<std::mutex> lock(queueMutex_);
+		halted_.store(true, std::memory_order_relaxed);
+	}
+	engine_.requestStop();
+	queueReady_.notify_all();
+}
+
+// Executes one command on the worker.
+void Session::dispatch(net::ClientId client, const std::string& text) {
+	const json command = parseCommand(text);
+	if (command.is_discarded() || !command.is_object()) {
+		pushError(client, "malformed JSON", "unknown");
+		return;
+	}
+	const std::string type = command.value("type", std::string{});
+	if (type == "new-game") {
+		newGame(client, text);
+	} else if (type == "play") {
+		play(client, text);
+	} else if (type == "suggest") {
+		suggest(client);
+	} else if (type == "undo") {
+		undo(client);
+	} else if (type == "limits") {
+		setLimits(client, text);
+	} else if (type == "weights") {
+		setWeights(client, text);
+	} else {
+		pushError(client, "unknown command: " + type, "unknown");
 	}
 }
 
 // Restarts a game under the requested settings and seats.
 void Session::newGame(net::ClientId client, const std::string& body) {
-	const std::lock_guard<std::mutex> lock(mutex_);
 	const json command = parseCommand(body);
 
 	GameConfig config;
@@ -181,13 +269,15 @@ void Session::newGame(net::ClientId client, const std::string& body) {
 
 	game_.reset(config);
 	lastStats_ = SearchStats{};
+	spentMs_ = 0;
+	searches_ = 0;
+	halted_.store(false, std::memory_order_relaxed);
 	pushState(client, "new_game");
-	runAiTurns(client);
+	scheduleAiTurn(client);
 }
 
 // Plays one human move, then lets the AI answer.
 void Session::play(net::ClientId client, const std::string& body) {
-	const std::lock_guard<std::mutex> lock(mutex_);
 	const json command = parseCommand(body);
 
 	int index = command.value("idx", -1);
@@ -209,12 +299,12 @@ void Session::play(net::ClientId client, const std::string& body) {
 		return;
 	}
 	pushState(client, "move");
-	runAiTurns(client);
+	halted_.store(false, std::memory_order_relaxed);
+	scheduleAiTurn(client);
 }
 
 // Runs a search without playing, and reprots the move it would pick.
 void Session::suggest(net::ClientId client) {
-	const std::lock_guard<std::mutex> lock(mutex_);
 	if (game_.status() != GameStatus::Ongoing) {
 		pushError(client, legalityText(Legality::GameOver), legalityCode(Legality::GameOver));
 		return;
@@ -226,7 +316,6 @@ void Session::suggest(net::ClientId client) {
 
 // Takes back moves until a human is to play again.
 void Session::undo(net::ClientId client) {
-	const std::lock_guard<std::mutex> lock(mutex_);
 	game_.undo();
 	if (seats_.isAi(game_.toMove())) {
 		game_.undo();
@@ -237,7 +326,6 @@ void Session::undo(net::ClientId client) {
 
 // Retunes the search.
 void Session::setLimits(net::ClientId client, const std::string& body) {
-	const std::lock_guard<std::mutex> lock(mutex_);
 	const json command = parseCommand(body);
 	limits_.maxDepth = std::max(1, command.value("maxDepth", limits_.maxDepth));
 	limits_.budget = std::chrono::milliseconds(
@@ -247,7 +335,6 @@ void Session::setLimits(net::ClientId client, const std::string& body) {
 
 // Retunes the heuristic.
 void Session::setWeights(net::ClientId client, const std::string& body) {
-	const std::lock_guard<std::mutex> lock(mutex_);
 	const json command = parseCommand(body);
 	EvalWeights weights = eval::weights();
 	if (command.contains("weights") && command.at("weights").is_object()) {
@@ -266,32 +353,77 @@ void Session::setWeights(net::ClientId client, const std::string& body) {
 	pushState(client, "weights");
 }
 
-// Searches, pushing a progress event at every completed depth.
+// Searches, pushing a progress event at every completed depth. The search
+// clears the engine's stop flag when it starts, so a stop that came just
+// before would be lost: each progress event re-arms it while halted_ is set.
 SearchResult Session::think(net::ClientId client) {
 	const ProgressFn onProgress = [this, client](const SearchStats& stats) {
+		if (halted_.load(std::memory_order_relaxed)) {
+			engine_.requestStop();
+		}
 		json event = statsOf(stats);
 		event["type"] = "progress";
 		server_.sendText(client, event.dump());
 	};
-	return engine_.search(game_, limits_, onProgress);
+	SearchLimits limits = limits_;
+	limits.budget = nextBudget();
+	const SearchResult result = engine_.search(game_, limits, onProgress);
+	spentMs_ += result.stats.elapsedMs;
+	++searches_;
+	return result;
 }
 
-void Session::runAiTurns(net::ClientId client) {
-	for (int guard = 0; guard < kCellCount; ++guard) {
-		if (game_.status() != GameStatus::Ongoing || !seats_.isAi(game_.toMove())) {
-			return;
-		}
-		const SearchResult result = think(client);
-		lastStats_ = result.stats;
-		if (result.best == kNoIdx) {
-			return;
-		}
-		if (game_.play(result.best) != Legality::Legal) {
-			pushError(client, "engine proposed an illegal move", "unknown");
-			return;
-		}
-		pushState(client, "ai_move");
+// Time bank: budgetMs is the average the game must stay under. A search gets
+// that average times the searches so far plus one, minus what was already
+// spent, kept between half the average and kBudgetCap times it.
+std::chrono::milliseconds Session::nextBudget() const {
+	const int64_t target = limits_.budget.count();
+	const int64_t banked = target * (searches_ + 1) - spentMs_;
+	return std::chrono::milliseconds(std::clamp(banked, target / 2, target * kBudgetCap));
+}
+
+// Queues one AI move if the AI is to play and nothing asked it to hold. At
+// most one is ever pending.
+void Session::scheduleAiTurn(net::ClientId client) {
+	if (aiPending_ || halted_.load(std::memory_order_relaxed) ||
+		game_.status() != GameStatus::Ongoing || !seats_.isAi(game_.toMove())) {
+		return;
 	}
+	aiPending_ = true;
+	enqueue(Job{JobKind::AiTurn, client, {}});
+}
+
+// Plays one AI move, then queues the next. Between two engines it first waits
+// kAiPace so the game can be watched; a stop ends the wait and the move, any
+// queued command cuts the wait short and goes first.
+void Session::aiTurn(net::ClientId client) {
+	aiPending_ = false;
+	if (halted_.load(std::memory_order_relaxed) || game_.status() != GameStatus::Ongoing ||
+		!seats_.isAi(game_.toMove())) {
+		return;
+	}
+	if (seats_.blackIsAi && seats_.whiteIsAi) {
+		std::unique_lock<std::mutex> lock(queueMutex_);
+		const bool woken = queueReady_.wait_for(lock, kAiPace, [this] {
+			return closing_ || !jobs_.empty() || halted_.load(std::memory_order_relaxed);
+		});
+		lock.unlock();
+		if (woken) {
+			scheduleAiTurn(client);
+			return;
+		}
+	}
+	const SearchResult result = think(client);
+	lastStats_ = result.stats;
+	if (result.best == kNoIdx) {
+		return;
+	}
+	if (game_.play(result.best) != Legality::Legal) {
+		pushError(client, "engine proposed an illegal move", "unknown");
+		return;
+	}
+	pushState(client, "ai_move");
+	scheduleAiTurn(client);
 }
 
 // Serialises the whole game state, 361 cells included.

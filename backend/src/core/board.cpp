@@ -34,6 +34,31 @@ constexpr ZobristTable buildZobrist() {
 	return table;
 }
 
+// Line of `i` along `axis` and its position on that line. Positions follow x
+// (y for the vertical axis), so a step along the axis is one position up.
+void lineOf(Idx i, int axis, int& line, int& pos) {
+	const int x = xOf(i);
+	const int y = yOf(i);
+	switch (axis) {
+		case 0:
+			line = y;
+			pos = x;
+			break;
+		case 1:
+			line = x;
+			pos = y;
+			break;
+		case 2:
+			line = x - y + kBoardSize - 1;
+			pos = x;
+			break;
+		default:
+			line = x + y;
+			pos = x;
+			break;
+	}
+}
+
 // constinit : built at compile time, so no initialisation order to get wrong
 // and no init() anyone could forget to call.
 constinit const ZobristTable kZobrist = buildZobrist();
@@ -49,9 +74,16 @@ Board::Board() {
 	clear();
 }
 
-// Empties the board and resets counters and hash.
+// Empties the board and resets counters and hash. Every line slot starts as a
+// wall, then the slots of real cells are opened.
 void Board::clear() {
 	cells_.fill(Player::None);
+	for (auto& axis : lines_) {
+		axis.fill(~uint64_t{0});
+	}
+	for (Idx i = 0; i < kCellCount; ++i) {
+		setLines(i, Player::None);
+	}
 	perPlayer_ = {0, 0};
 	stoneCount_ = 0;
 	hash_ = 0;
@@ -72,6 +104,7 @@ bool Board::isEmpty(Idx i) const {
 void Board::place(Idx i, Player p) {
 	const int side = playerIndex(p);
 	cells_[i] = p;
+	setLines(i, p);
 	++perPlayer_[side];
 	++stoneCount_;
 	hash_ ^= kZobrist.piece[side][i];
@@ -84,6 +117,7 @@ void Board::remove(Idx i) {
 	}
 	const int side = playerIndex(p);
 	cells_[i] = Player::None;
+	setLines(i, Player::None);
 	--perPlayer_[side];
 	--stoneCount_;
 	hash_ ^= kZobrist.piece[side][i];
@@ -123,42 +157,31 @@ int Board::countLine(Idx i, int axis, Player p) const {
 static_assert(static_cast<int>(Player::None) == static_cast<int>(CellCode::Empty) &&
 				  static_cast<int>(Player::Black) == static_cast<int>(CellCode::Own) &&
 				  static_cast<int>(Player::White) == static_cast<int>(CellCode::Foe),
-			  "Board::window reads cells as Black's codes");
+			  "lines store cells as Black's codes");
+static_assert(2 * (kBoardSize + 2 * kWindowRadius) <= 64, "a padded line must fit in 64 bits");
 
-// Window centred on `i` along `axis`. When the 9 cells are all on the board,
-// they are read with a fixed stride as Black sees them (Player and CellCode
-// share their values), then Own and Foe are swapped for White.
-LineWindow Board::window(Idx i, int axis, Player viewer) const {
-	const Delta d = kAxes[axis];
-	const int cx = xOf(i);
-	const int cy = yOf(i);
-	const int r = kWindowRadius;
-	if (inBounds(cx - r * d.dx, cy - r * d.dy) && inBounds(cx + r * d.dx, cy + r * d.dy)) {
-		const int stride = d.dx + d.dy * kBoardSize;
-		const int first = i - r * stride;
-		LineWindow packed = 0;
-		for (int k = 0; k < kWindowCells; ++k) {
-			packed |= static_cast<LineWindow>(cells_[first + k * stride]) << (2 * k);
-		}
-		if (viewer == Player::White) {
-			packed = ((packed & 0x15555U) << 1) | ((packed & 0x2AAAAU) >> 1);
-		}
-		return packed;
+// Writes the code of `p` into the slot of `i` on its four lines. Each line
+// keeps kWindowRadius wall slots on both sides, so slot = position + radius.
+void Board::setLines(Idx i, Player p) {
+	for (int axis = 0; axis < 4; ++axis) {
+		int line = 0;
+		int pos = 0;
+		lineOf(i, axis, line, pos);
+		const int shift = 2 * (pos + kWindowRadius);
+		uint64_t& word = lines_[axis][line];
+		word = (word & ~(uint64_t{3} << shift)) | (static_cast<uint64_t>(p) << shift);
 	}
-	LineWindow packed = 0;
-	for (int k = -kWindowRadius; k <= kWindowRadius; ++k) {
-		const int x = cx + k * d.dx;
-		const int y = cy + k * d.dy;
-		CellCode code = CellCode::Wall;
-		if (inBounds(x, y)) {
-			const Player cell = cells_[idxOf(x, y)];
-			if (cell == Player::None) {
-				code = CellCode::Empty;
-			} else {
-				code = cell == viewer ? CellCode::Own : CellCode::Foe;
-			}
-		}
-		packed |= static_cast<LineWindow>(code) << (2 * (k + kWindowRadius));
+}
+
+// Window centred on `i` along `axis`: 9 slots cut out of the line, read as
+// Black sees them, then Own and Foe swapped for White.
+LineWindow Board::window(Idx i, int axis, Player viewer) const {
+	int line = 0;
+	int pos = 0;
+	lineOf(i, axis, line, pos);
+	LineWindow packed = static_cast<LineWindow>((lines_[axis][line] >> (2 * pos)) & 0x3FFFFU);
+	if (viewer == Player::White) {
+		packed = ((packed & 0x15555U) << 1) | ((packed & 0x2AAAAU) >> 1);
 	}
 	return packed;
 }
