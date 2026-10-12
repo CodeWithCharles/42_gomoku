@@ -61,6 +61,21 @@ struct SearchResult {
 	SearchStats stats;
 };
 
+// Average time policy (docs/PROTOCOL.md, "Budget de temps"). After n searches
+// that cost `spent` ms in all, the next one gets target * (n + 1) - spent,
+// kept between half the target and twice it, so the running average never
+// exceeds the target by more than a search's few milliseconds of overrun.
+class TimeBank {
+  public:
+	std::chrono::milliseconds next(std::chrono::milliseconds target) const;
+	void record(int64_t elapsedMs);
+	void reset();
+
+  private:
+	int64_t spentMs_ = 0;
+	int64_t searches_ = 0;
+};
+
 // One slot of the transposition table, private to search.cpp.
 struct TTEntry;
 

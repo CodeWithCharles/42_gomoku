@@ -35,6 +35,7 @@ namespace {
 
 inline constexpr size_t kTTSize = size_t{1} << 20;
 inline constexpr Score kMateZone = kScoreWin - 1000;
+inline constexpr int64_t kBankCap = 2;
 inline constexpr Score kForcedMove = 500000;
 inline constexpr int kForcedSpare = 2;
 inline constexpr int kBeamStep = 3;
@@ -111,6 +112,25 @@ Engine::Engine() : tt_(new (std::nothrow) TTEntry[kTTSize]) {}
 
 // Defined here, where TTEntry is complete, so unique_ptr can delete it.
 Engine::~Engine() = default;
+
+// Budget of the next search for an average of `target`.
+std::chrono::milliseconds TimeBank::next(std::chrono::milliseconds target) const {
+	const int64_t average = target.count();
+	const int64_t banked = average * (searches_ + 1) - spentMs_;
+	return std::chrono::milliseconds(std::clamp(banked, average / 2, average * kBankCap));
+}
+
+// Books the time a search really took.
+void TimeBank::record(int64_t elapsedMs) {
+	spentMs_ += elapsedMs;
+	++searches_;
+}
+
+// Empties the bank, at the start of a game.
+void TimeBank::reset() {
+	spentMs_ = 0;
+	searches_ = 0;
+}
 
 // Zobrist key of the stones, the side to move and the captured pairs.
 uint64_t Engine::positionKey(const Game& game) const {

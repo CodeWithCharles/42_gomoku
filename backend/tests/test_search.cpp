@@ -264,4 +264,31 @@ TEST(search_reports_every_root_move_it_scored) {
 	CHECK(result.stats.pv[0] == result.best);
 }
 
+TEST(time_bank_lends_what_fast_moves_saved) {
+	const std::chrono::milliseconds target(450);
+	TimeBank bank;
+	CHECK(bank.next(target).count() == 450);
+	bank.record(50);
+	CHECK(bank.next(target).count() == 850);
+	bank.record(10);
+	CHECK(bank.next(target).count() == 900);
+}
+
+TEST(time_bank_never_lets_the_average_drift) {
+	const std::chrono::milliseconds target(450);
+	TimeBank bank;
+	int64_t spent = 0;
+	for (int move = 1; move <= 50; ++move) {
+		const int64_t budget = bank.next(target).count();
+		const int64_t used = move % 3 == 0 ? 5 : budget;
+		bank.record(used);
+		spent += used;
+		CHECK(spent <= target.count() * move);
+	}
+	bank.record(2000);
+	CHECK(bank.next(target).count() == 225);
+	bank.reset();
+	CHECK(bank.next(target).count() == 450);
+}
+
 }  // namespace

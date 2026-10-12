@@ -11,8 +11,11 @@
 namespace gomoku::server {
 namespace {
 
-inline constexpr int64_t kBudgetCap = 2;
 inline constexpr std::chrono::milliseconds kAiPace{300};
+inline constexpr int kMaxDepthLimit = 64;
+inline constexpr int kMinBudgetMs = 10;
+inline constexpr int kMaxBudgetMs = 60000;
+inline constexpr int kMaxWeight = 200000;
 
 using nlohmann::json;
 
@@ -98,6 +101,21 @@ json statsOf(const SearchStats& stats) {
 	return out;
 }
 
+// Integer field `key` of `source`, or `fallback` when it is missing, not a
+// number, or outside [lo, hi]. json::value would convert 1e30 or 2.5e9 to int
+// directly, which is undefined behaviour.
+int intField(const json& source, const char* key, int fallback, int lo, int hi) {
+	const auto found = source.find(key);
+	if (found == source.end() || !found->is_number()) {
+		return fallback;
+	}
+	const double value = found->get<double>();
+	if (!(value >= lo && value <= hi)) {
+		return fallback;
+	}
+	return static_cast<int>(value);
+}
+
 // Parses a command body, never throwing on malformed input.
 json parseCommand(const std::string& text) {
 	return json::parse(text, nullptr, false);
@@ -144,6 +162,7 @@ void Session::onConnect(net::ClientId client) {
 
 // Routes one frame, on a civetweb thread. Only `stop` acts here; every other
 // command goes to the worker, new-game and undo interrupting the AI first.
+// `suggest` gets its own kind so the queue can coalesce and drop it.
 // Nothing may escape: an exception crossing a civetweb callback is fatal.
 void Session::onText(net::ClientId client, const std::string& text) {
 	try {
@@ -156,20 +175,30 @@ void Session::onText(net::ClientId client, const std::string& text) {
 		if (type == "new-game" || type == "undo") {
 			interruptAi();
 		}
-		enqueue(Job{JobKind::Command, client, text});
+		const JobKind kind = type == "suggest" ? JobKind::Suggest : JobKind::Command;
+		enqueue(Job{kind, client, text});
 	} catch (...) {
 		return;
 	}
 }
 
-// Appends a job for the worker, unless the session is closing.
+// Appends a job for the worker, unless the session is closing. A new client
+// jumps the queue so it gets its state right after the current job, and a
+// suggest already waiting makes another one pointless: searches are the only
+// jobs that cost time, so this keeps the queue short under any flood.
 void Session::enqueue(Job job) {
 	{
 		const std::lock_guard<std::mutex> lock(queueMutex_);
 		if (closing_) {
 			return;
 		}
-		jobs_.push_back(std::move(job));
+		const auto isSuggest = [](const Job& queued) { return queued.kind == JobKind::Suggest; };
+		if (job.kind == JobKind::Connect) {
+			jobs_.push_front(std::move(job));
+		} else if (job.kind != JobKind::Suggest ||
+				   std::none_of(jobs_.begin(), jobs_.end(), isSuggest)) {
+			jobs_.push_back(std::move(job));
+		}
 	}
 	queueReady_.notify_one();
 }
@@ -199,6 +228,7 @@ void Session::run(const Job& job) {
 				pushState(job.client, "connected");
 				break;
 			case JobKind::Command:
+			case JobKind::Suggest:
 				dispatch(job.client, job.text);
 				break;
 			case JobKind::AiTurn:
@@ -212,13 +242,15 @@ void Session::run(const Job& job) {
 	}
 }
 
-// Stops the running search and keeps the AI from starting another move. Safe
-// from any thread. The flag is set under the queue lock so a worker about to
-// pause between two AI moves cannot miss the wake-up.
+// Stops the running search, drops the suggests still waiting and keeps the AI
+// from starting another move. Safe from any thread. The flag is set under the
+// queue lock so a worker about to pause between two AI moves cannot miss the
+// wake-up.
 void Session::interruptAi() {
 	{
 		const std::lock_guard<std::mutex> lock(queueMutex_);
 		halted_.store(true, std::memory_order_relaxed);
+		std::erase_if(jobs_, [](const Job& queued) { return queued.kind == JobKind::Suggest; });
 	}
 	engine_.requestStop();
 	queueReady_.notify_all();
@@ -269,8 +301,7 @@ void Session::newGame(net::ClientId client, const std::string& body) {
 
 	game_.reset(config);
 	lastStats_ = SearchStats{};
-	spentMs_ = 0;
-	searches_ = 0;
+	bank_.reset();
 	halted_.store(false, std::memory_order_relaxed);
 	pushState(client, "new_game");
 	scheduleAiTurn(client);
@@ -280,10 +311,10 @@ void Session::newGame(net::ClientId client, const std::string& body) {
 void Session::play(net::ClientId client, const std::string& body) {
 	const json command = parseCommand(body);
 
-	int index = command.value("idx", -1);
+	int index = intField(command, "idx", -1, 0, kCellCount - 1);
 	if (index < 0 && command.contains("x") && command.contains("y")) {
-		const int x = command.value("x", -1);
-		const int y = command.value("y", -1);
+		const int x = intField(command, "x", -1, 0, kBoardSize - 1);
+		const int y = intField(command, "y", -1, 0, kBoardSize - 1);
 		if (inBounds(x, y)) {
 			index = idxOf(x, y);
 		}
@@ -324,30 +355,33 @@ void Session::undo(net::ClientId client) {
 	pushState(client, "undo");
 }
 
-// Retunes the search.
+// Retunes the search. Out of range values are ignored.
 void Session::setLimits(net::ClientId client, const std::string& body) {
 	const json command = parseCommand(body);
-	limits_.maxDepth = std::max(1, command.value("maxDepth", limits_.maxDepth));
-	limits_.budget = std::chrono::milliseconds(
-		std::max(10, command.value("budgetMs", static_cast<int>(limits_.budget.count()))));
+	limits_.maxDepth = intField(command, "maxDepth", limits_.maxDepth, 1, kMaxDepthLimit);
+	limits_.budget = std::chrono::milliseconds(intField(
+		command, "budgetMs", static_cast<int>(limits_.budget.count()), kMinBudgetMs, kMaxBudgetMs));
 	pushState(client, "limits");
 }
 
-// Retunes the heuristic.
+// Retunes the heuristic. Each weight stays in [0, kMaxWeight], which keeps
+// every sum of the evaluation far from int overflow.
 void Session::setWeights(net::ClientId client, const std::string& body) {
 	const json command = parseCommand(body);
 	EvalWeights weights = eval::weights();
 	if (command.contains("weights") && command.at("weights").is_object()) {
 		const json& source = command.at("weights");
-		weights.five = source.value("five", weights.five);
-		weights.openFour = source.value("openFour", weights.openFour);
-		weights.simpleFour = source.value("simpleFour", weights.simpleFour);
-		weights.openThree = source.value("openThree", weights.openThree);
-		weights.brokenThree = source.value("brokenThree", weights.brokenThree);
-		weights.simpleThree = source.value("simpleThree", weights.simpleThree);
-		weights.openTwo = source.value("openTwo", weights.openTwo);
-		weights.capturedPair = source.value("capturedPair", weights.capturedPair);
-		weights.captureThreat = source.value("captureThreat", weights.captureThreat);
+		weights.five = intField(source, "five", weights.five, 0, kMaxWeight);
+		weights.openFour = intField(source, "openFour", weights.openFour, 0, kMaxWeight);
+		weights.simpleFour = intField(source, "simpleFour", weights.simpleFour, 0, kMaxWeight);
+		weights.openThree = intField(source, "openThree", weights.openThree, 0, kMaxWeight);
+		weights.brokenThree = intField(source, "brokenThree", weights.brokenThree, 0, kMaxWeight);
+		weights.simpleThree = intField(source, "simpleThree", weights.simpleThree, 0, kMaxWeight);
+		weights.openTwo = intField(source, "openTwo", weights.openTwo, 0, kMaxWeight);
+		weights.capturedPair =
+			intField(source, "capturedPair", weights.capturedPair, 0, kMaxWeight);
+		weights.captureThreat =
+			intField(source, "captureThreat", weights.captureThreat, 0, kMaxWeight);
 	}
 	eval::setWeights(weights);
 	pushState(client, "weights");
@@ -366,20 +400,10 @@ SearchResult Session::think(net::ClientId client) {
 		server_.sendText(client, event.dump());
 	};
 	SearchLimits limits = limits_;
-	limits.budget = nextBudget();
+	limits.budget = bank_.next(limits_.budget);
 	const SearchResult result = engine_.search(game_, limits, onProgress);
-	spentMs_ += result.stats.elapsedMs;
-	++searches_;
+	bank_.record(result.stats.elapsedMs);
 	return result;
-}
-
-// Time bank: budgetMs is the average the game must stay under. A search gets
-// that average times the searches so far plus one, minus what was already
-// spent, kept between half the average and kBudgetCap times it.
-std::chrono::milliseconds Session::nextBudget() const {
-	const int64_t target = limits_.budget.count();
-	const int64_t banked = target * (searches_ + 1) - spentMs_;
-	return std::chrono::milliseconds(std::clamp(banked, target / 2, target * kBudgetCap));
 }
 
 // Queues one AI move if the AI is to play and nothing asked it to hold. At

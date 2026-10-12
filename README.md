@@ -3,12 +3,14 @@
 Projet 42 — une IA capable de battre un joueur humain au Gomoku (variante
 captures + interdiction du double-trois), avec une interface web.
 
-> **État : le moteur C++ reste à écrire.** `ui/` (React + TypeScript) et `app/`
-> (coque Electron) existent et fonctionnent, branchés sur un moteur factice —
-> voir « Développer sans le moteur C++ » plus bas. `src/`, `include/`, `tests/`
-> et `bench/` sont encore vides.
+> **État** : le moteur C++ est jouable de bout en bout dans le navigateur,
+> humain contre IA comme IA contre IA. En partie réelle (`make bench-games`),
+> l'IA met **137 ms en moyenne** par coup et atteint la **profondeur 10 sur
+> 96 %** des coups non forcés. L'avancement détaillé est dans
+> [docs/HANDOFF.md](docs/HANDOFF.md), le travail restant côté interface dans
+> [docs/FRONT.md](docs/FRONT.md).
 
-## La forme visée
+## La forme
 
 Un binaire C++ autonome, `Gomoku`, qui sert l'interface en HTTP et dialogue
 avec elle en WebSocket. Une coque Electron **optionnelle** par-dessus, pour
@@ -16,83 +18,88 @@ avoir une vraie fenêtre d'application.
 
 ```
 make       → Gomoku           binaire C++ ; jouable dans un navigateur ordinaire
-make app   → Gomoku-desktop   fenêtre Electron qui lance ./Gomoku
+make app   → Gomoku-desktop   fenêtre Electron (aujourd'hui sur le moteur factice)
 ```
 
 `make` ne dépend jamais d'Electron ni de npm : si la coque casse, `./Gomoku` +
 navigateur reste une démonstration valide. Voir ADR-005.
 
-## Ce que le Makefile devra fournir
+```bash
+make
+./Gomoku                      # ouvre le navigateur sur le port choisi
+./Gomoku --no-browser --port 8642
+```
 
-| commande | effet | état |
-|---|---|---|
-| `make` | compile `Gomoku` (et ne relink pas) | à écrire |
-| `make re` | recompile de zéro | à écrire |
-| `make test` | batterie de tests des règles | à écrire |
-| `make bench` | profondeur atteinte et nœuds/s — le critère du sujet | à écrire |
-| `make debug` | compile avec AddressSanitizer + UBSan | à écrire |
-| `make ui` | recompile `ui/dist` (nécessite node) | **existe** |
-| `make app` | construit la coque Electron (nécessite node) | **existe** |
-| `make mock` | sert `ui/dist` via le moteur factice | **existe** |
-| `make dev` | moteur factice + serveur Vite | **existe** |
-| `make help` | liste les cibles disponibles | **existe** |
-
-`make` sans argument affiche `make help` tant que `all` n'existe pas. Le
-`Makefile` ne déclare **que** les cibles qui font quelque chose aujourd'hui.
-Les cibles du sujet arriveront avec `src/` : une cible vide qui laisserait croire
-que le moteur existe serait pire que son absence.
-
-Options prévues pour le binaire : `--port N`, `--no-browser`, `--ui <chemin>`,
+Options du binaire : `--port N` (essaie les 20 ports suivants s'il est pris),
+`--no-browser`, `--ui <chemin>` (défaut : `ui/dist` à côté du binaire),
 `--parent-watchdog` (voir [docs/ELECTRON.md](docs/ELECTRON.md)).
 
-## Arborescence visée
+## Cibles du Makefile
+
+| commande | effet |
+|---|---|
+| `make` | compile `Gomoku` (et ne relink pas) |
+| `make re` / `clean` / `fclean` | les cibles imposées par le sujet |
+| `make test` | batterie de tests : règles, plateau, éval, recherche, JSON |
+| `make bench` | profondeur et nœuds/s sur 4 positions fixes de début de partie, les plus dures |
+| `make bench-games` | 8 parties moteur contre moteur : temps moyen, répartition des profondeurs — ce que le sujet juge |
+| `make fuzz` | attaque le protocole WebSocket (nécessite node) ; après `make debug`, sous ASan/UBSan |
+| `make debug` | reconfigure en AddressSanitizer + UBSan et recompile |
+| `make release` | revient au build optimisé |
+| `make format` / `format-check` | clang-format |
+| `make ui` | recompile `ui/dist` (nécessite node) |
+| `make app` | construit et lance la coque Electron (nécessite node) |
+| `make mock` / `make dev` | moteur factice, pour travailler l'interface sans le C++ |
+| `make help` | liste les cibles |
+
+`make test` et `make bench` sont les deux garde-fous après toute modification
+du moteur.
+
+## Arborescence
 
 ```
-include/gomoku/   interfaces partagées — le contrat entre les 4 modules
-src/core/         plateau, règles, génération de coups        (module 1)
-src/eval/         heuristique                                 (module 3)
-src/search/       minimax / alpha-bêta                        (module 2)
-src/game/         arbitrage de la partie                      (partagé)
-src/net/          HTTP + WebSocket + JSON, sans dépendance    (module 4)
-src/server/       protocole moteur ↔ interface                (module 4)
-ui/               interface React + TypeScript                (module 4)
-app/              coque Electron                              (module 4)
-tests/ bench/     tests des règles, banc de mesure
-docs/             architecture, protocole, règles, organisation
+backend/include/gomoku/   interfaces partagées — le contrat entre les 4 modules
+backend/src/core/         plateau, règles, génération de coups        (module 1)
+backend/src/eval/         heuristique : table de motifs               (module 3)
+backend/src/search/       negamax alpha-bêta, TT, PVS, faisceau        (module 2)
+backend/src/net/          HTTP + WebSocket (civetweb vendoré)         (module 4)
+backend/src/server/       protocole, thread de partie, temps          (module 4)
+backend/tests/ bench/     tests, fuzz du protocole, banc de mesure
+backend/thirdparty/       civetweb v1.16, nlohmann/json v3.11.3 (ADR-003)
+ui/                       interface React + TypeScript                (module 4)
+app/                      coque Electron                              (module 4)
+tools/mock-engine.mjs     moteur factice en Node
+docs/                     architecture, protocole, règles, organisation
 ```
 
-## Développer sans le moteur C++
+## Développer l'interface sans le moteur C++
 
-Le moteur n'existe pas encore, mais l'interface et la coque sont complètes et
-démontrables. `tools/mock-engine.mjs` est un **moteur factice** en Node, sans
-aucune dépendance : il annonce son port sur stdout comme le fera le binaire,
-sert `ui/dist` en HTTP et implémente le protocole de
-[docs/PROTOCOL.md](docs/PROTOCOL.md) — handshake RFC 6455 écrit à la main,
-démasquage XOR, ping toutes les 15 s.
+`tools/mock-engine.mjs` est un **moteur factice** en Node, sans dépendance : il
+annonce son port sur stdout comme le binaire, sert `ui/dist` et implémente le
+protocole de [docs/PROTOCOL.md](docs/PROTOCOL.md). Il pose des pierres, alterne
+les couleurs et détecte un alignement de cinq, sans arbitrer captures ni
+double-trois. Sa recherche est simulée (une dizaine de `progress` sur ~400 ms
+puis un coup aléatoire).
 
 ```bash
 make dev     # moteur factice + Vite sur :5173, avec le proxy /ws
 make mock    # moteur factice qui sert ui/dist sur :8642
-make app     # la fenêtre Electron, lancée sur le moteur factice
 ```
 
-Il pose des pierres, alterne les couleurs et détecte un alignement de cinq. Il
-**n'arbitre rien d'autre** : ni captures, ni double-trois. Ces règles sont celles
-de `src/core/rules.cpp` et n'ont pas à être dupliquées ici. Sa recherche est
-simulée : une dizaine d'événements `progress` sur ~400 ms, puis un coup
-aléatoire — de quoi exercer le chronomètre et le panneau de recherche.
-
-Quand `Gomoku` existera, il suffira de retirer `GOMOKU_ENGINE` des scripts et de
-faire pointer `make mock` sur `./Gomoku`.
+Il ne suit pas toutes les évolutions du vrai moteur (arrêt en IA contre IA,
+bornes des réglages) : en cas de doute, c'est `./Gomoku` qui fait foi. La liste
+est dans [docs/FRONT.md](docs/FRONT.md).
 
 ## Documentation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — découpage, ADR, chemin critique
 - [docs/RULES.md](docs/RULES.md) — les règles et leurs cas limites
-- [docs/PROTOCOL.md](docs/PROTOCOL.md) — WebSocket, commandes, événements
-- [docs/INTEGRATION.md](docs/INTEGRATION.md) — brancher le moteur C++ sur l'interface, étape par étape
+- [docs/PROTOCOL.md](docs/PROTOCOL.md) — WebSocket, commandes, événements, budget de temps
+- [docs/INTEGRATION.md](docs/INTEGRATION.md) — comment le moteur est branché sur l'interface
 - [docs/ELECTRON.md](docs/ELECTRON.md) — la coque Electron et ses trois canaux de communication
 - [docs/WORKFLOW.md](docs/WORKFLOW.md) — répartition à 4, git, jalons
+- [docs/HANDOFF.md](docs/HANDOFF.md) — où on en est, ce qui reste, pièges déjà payés
+- [docs/FRONT.md](docs/FRONT.md) — ce qui reste à faire sur l'interface et la coque
 
 ## Les contraintes du sujet, en un coup d'œil
 

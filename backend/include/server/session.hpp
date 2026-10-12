@@ -55,7 +55,7 @@ class Session {
 	void install();
 
   private:
-	enum class JobKind : uint8_t { Connect, Command, AiTurn };
+	enum class JobKind : uint8_t { Connect, Command, Suggest, AiTurn };
 
 	struct Job {
 		JobKind kind;
@@ -84,7 +84,6 @@ class Session {
 	void scheduleAiTurn(net::ClientId client);
 	void aiTurn(net::ClientId client);
 	SearchResult think(net::ClientId client);
-	std::chrono::milliseconds nextBudget() const;
 
 	void pushState(net::ClientId client, const char* event);
 	void pushError(net::ClientId client, const std::string& message, const char* code);
@@ -96,8 +95,7 @@ class Session {
 	SearchLimits limits_;
 	Seats seats_;
 	SearchStats lastStats_;
-	int64_t spentMs_ = 0;
-	int64_t searches_ = 0;
+	TimeBank bank_;
 	bool aiPending_ = false;
 	std::atomic<bool> halted_{false};
 

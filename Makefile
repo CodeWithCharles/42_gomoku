@@ -47,6 +47,14 @@ test:
 bench:
 	$(call qcmd,$(ENGINE) bench)
 
+# Joue des parties moteur contre moteur : temps moyen et profondeurs reelles.
+bench-games:
+	$(call qcmd,$(ENGINE) bench-games)
+
+# Attaque le protocole WebSocket du moteur (necessite node).
+fuzz:
+	$(call qcmd,$(ENGINE) fuzz)
+
 # Reconfigure le moteur en debug (ASan + UBSan) et le recompile.
 debug:
 	$(call qcmd,$(ENGINE) debug)
@@ -106,5 +114,5 @@ help:
 	@echo ""
 	@echo "Variable : PORT=$(PORT)   (exemple : make mock PORT=9000)"
 
-.PHONY: all clean fclean mrproper re test bench debug release \
+.PHONY: all clean fclean mrproper re test bench bench-games fuzz debug release \
 format format-check ui app mock dev help

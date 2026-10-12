@@ -9,6 +9,7 @@
 
 #include "gomoku/eval.hpp"
 
+#include <algorithm>
 #include <bit>
 
 namespace gomoku::eval {
@@ -278,7 +279,8 @@ void setWeights(const EvalWeights& w) {
 }
 
 // Static evaluation from the point of view of `toMove`. Fours are settled by
-// tempo first, everything else is the material difference.
+// tempo first, everything else is the material difference, kept inside the
+// decisive band so no weight setting can pass for a won game.
 Score evaluate(const Board& b, Player toMove, const std::array<int, 2>& pairs) {
 	const EvalWeights& w = gWeights;
 	std::array<Tally, 2> tallies{};
@@ -297,7 +299,8 @@ Score evaluate(const Board& b, Player toMove, const std::array<int, 2>& pairs) {
 	if (theirs.shapes[kOpenFour] > 0) {
 		return -kDecisive;
 	}
-	return sideScore(mine, pairs[me], w) - sideScore(theirs, pairs[foe], w);
+	const Score diff = sideScore(mine, pairs[me], w) - sideScore(theirs, pairs[foe], w);
+	return std::clamp(diff, -kDecisive + 1, kDecisive - 1);
 }
 
 // Static score of a candidate move, for ordering only: the shapes `p` makes

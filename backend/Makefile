@@ -66,6 +66,16 @@ $(BENCH_PATH): $(OBJS_CORE) $(OBJS_C) $(OBJS_BENCH)
 bench: $(BENCH_PATH)
 	$(call qcmd,$(BENCH_PATH))
 
+# Parties moteur contre moteur, mesurees comme le sujet les juge : en moyenne.
+bench-games: $(BENCH_PATH)
+	$(call qcmd,$(BENCH_PATH) games)
+
+# ----------------------------------- Fuzz ----------------------------------- #
+# Attaque le protocole WebSocket du binaire (necessite node). Apres `make debug`,
+# toute alerte ASan ou UBSan fait echouer la cible.
+fuzz: $(NAME_PATH)
+	$(call qcmd,node $(TESTDIR)/fuzz_protocol.mjs $(NAME_PATH))
+
 # ------------------------------ Build profiles ------------------------------ #
 # C'est configure.sh qui detient l'etat du build, et il passe par mrproper :
 # impossible de se retrouver avec un binaire instrumente qu'on croit release.
@@ -101,5 +111,5 @@ app: all
 
 -include $(DEPS)
 
-.PHONY: all all-gomoku clean fclean mrproper re test bench debug release \
+.PHONY: all all-gomoku clean fclean mrproper re test bench bench-games fuzz debug release \
 format format-check ui app

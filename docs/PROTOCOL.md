@@ -38,13 +38,13 @@ possible.
 
 | `type` | champs | effet |
 |---|---|---|
-| `new-game` | `config?`, `players?` | réinitialise la partie |
+| `new-game` | `config?`, `players?` | réinitialise la partie ; interrompt l'IA en cours |
 | `play` | `idx` (ou `x` + `y`) | joue un coup pour le joueur au trait |
 | `suggest` | — | lance une recherche **sans** jouer le coup |
-| `undo` | — | revient à une position où c'est à un humain de jouer |
+| `undo` | — | revient à une position où c'est à un humain de jouer ; interrompt l'IA en cours |
 | `limits` | `maxDepth`, `budgetMs`, `maxCandidates` | règle la recherche ; `budgetMs` est une **moyenne** (voir [Budget de temps](#budget-de-temps)) |
 | `weights` | `weights` | règle l'heuristique à chaud |
-| `stop` | — | demande l'arrêt de la recherche en cours |
+| `stop` | — | arrête la recherche en cours et suspend l'enchaînement des coups de l'IA (voir [Arrêt](#arrêt)) |
 
 ```json
 { "type": "new-game",
@@ -59,11 +59,37 @@ possible.
 
 Une commande fautive donne un `error`. **La socket reste ouverte**, toujours.
 
+Les champs numériques hors bornes ou d'un mauvais type sont **ignorés**, sans
+erreur : `maxDepth` ∈ [1, 64], `budgetMs` ∈ [10, 60 000], chaque poids de
+`weights` ∈ [0, 200 000]. Un `idx` hors du plateau donne `out_of_bounds`.
+
+Un message de plus de **1 Mio** (fragments compris) ferme la connexion : une
+commande en fait quelques centaines d'octets.
+
+### Arrêt
+
+`stop` est la seule commande traitée **immédiatement**, sans attendre son tour
+dans la file du moteur :
+
+- pendant une recherche de l'IA, celle-ci s'arrête et **l'IA joue le meilleur
+  coup trouvé jusque-là** (quelques millisecondes plus tard) ;
+- en partie IA contre IA, la partie est **suspendue** après ce coup. Seul
+  `new-game` la relance : il n'existe pas encore de commande de reprise ;
+- les `suggest` en attente sont abandonnés.
+
+`new-game` et `undo` interrompent l'IA de la même façon avant de s'exécuter.
+Un `play` humain lève la suspension.
+
+En partie IA contre IA, le moteur marque une pause de **300 ms** entre deux
+coups pour que la partie se suive à l'écran. Cette pause n'est pas comptée
+dans `elapsedMs`.
+
 ### Budget de temps
 
 Le sujet exige moins de 0,5 s **en moyenne** par coup, pas à chaque coup.
 `budgetMs` (450 par défaut) est donc la **moyenne visée sur la partie**, gérée
-par une banque de temps dans `Session` :
+par une banque de temps (`TimeBank`, dans `search.hpp`), utilisée par
+`Session` et par `make bench-games` :
 
 - après `n` recherches ayant coûté `dépensé` ms au total, la suivante reçoit
   `budgetMs × (n + 1) − dépensé` ;
@@ -160,9 +186,11 @@ qu'elle veut à partir du `code`.
 
 ## Maintien de connexion
 
-Le moteur envoie un `ping` (opcode `0x9`) toutes les **15 s** et ferme un
-client muet depuis **45 s**. Les pings ne partent pas pendant une recherche,
-ce qui est sans conséquence tant qu'elle reste sous 0,5 s (ADR-007).
+Après **15 s** sans rien recevoir d'un client, le moteur lui envoie un `ping`
+(opcode `0x9`). Un client qui laisse **6 pings de suite** sans `pong` est
+fermé, soit environ 1 min 45 de silence. Les navigateurs répondent aux pings
+d'eux-mêmes : l'interface n'a rien à faire. Les pings partent aussi pendant
+une recherche, qui ne bloque plus les threads réseau (ADR-007).
 
 ## Reconnexion
 

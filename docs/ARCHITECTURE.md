@@ -1,7 +1,9 @@
 # Architecture
 
-> Ce document décrit ce que nous allons construire. **Rien n'est encore écrit** :
-> le dépôt ne contient que cette documentation.
+> Ce document décrit le découpage et les décisions qui le justifient. Les ADR
+> gardent la trace des choix renversés en route (003, 004, 007) : la version
+> actuelle est en tête, l'historique ensuite. L'état d'avancement est dans
+> [HANDOFF.md](HANDOFF.md).
 
 ## Vue d'ensemble
 
@@ -33,6 +35,9 @@
 
 `Gomoku` sert lui-même `ui/dist` et pousse ses événements en WebSocket.
 Electron n'est qu'une fenêtre par-dessus : **le binaire reste jouable seul**.
+
+Toutes ces couches vivent sous `backend/`. L'arbitrage (`Game`) a finalement
+pris place dans `src/core/game.cpp` : `src/game/` est vide.
 
 ## Règle de dépendance
 
@@ -66,24 +71,40 @@ natif à rendre).
 
 ### ADR-002 — Le plateau cache sa représentation
 `Board` expose `at`, `place`, `remove`, `countLine`, `window`, `hasNeighbor` —
-et rien d'autre. On commence par un `std::array<Player, 361>` : correct,
+et rien d'autre. Il a commencé par un `std::array<Player, 361>` : correct,
 lisible, suffisant pour valider les règles.
-Le passage aux bitboards (6 × `uint64_t`, décalages masqués par ligne) sera une
-optimisation **interne à `board.cpp`** : aucun autre fichier ne bougera.
-On ne le fait qu'une fois le profilage disponible — le goulot sera
-probablement l'évaluation, pas la représentation.
 
-### ADR-003 — Zéro dépendance C++ tierce
-Le sujet impose un Makefile ; y greffer CMake pour tirer une bibliothèque HTTP
-coûte plus cher que ce qu'on écrit à la main. La couche réseau se réduit à :
-parsing de requête HTTP, service de fichiers statiques, handshake WebSocket
-(SHA-1 + base64), framing RFC 6455, et un petit JSON.
-Le WebSocket (ADR-004) est ce qui coûte le plus cher ici : SHA-1 est à écrire
-à la main, puisque le tirer d'OpenSSL serait précisément la dépendance qu'on
-refuse. C'est une soixantaine de lignes mécaniques et testables contre des
-vecteurs connus — à faire une fois, à ne plus jamais toucher.
-Le dépôt se compile avec `make` sur une machine nue, et il n'y a pas de
-submodule à oublier le jour de la soutenance.
+Le profilage a désigné le goulot : `Board::window`, appelée par l'ordonnancement
+des coups, prenait près de la moitié du temps. `Board` tient donc en plus
+**une copie de chaque ligne** du plateau dans les 4 directions (19 + 19 + 37 +
+37 mots de 64 bits, 2 bits par case, 4 cases de mur de chaque côté).
+`place` et `remove` mettent 4 mots à jour, et `window` n'est plus qu'un
+décalage et un masque. Comme prévu, le changement est resté **interne à
+`board.cpp`** : aucun autre fichier n'a bougé, et la nouvelle version a été
+comparée à l'ancienne sur 1,4 M de fenêtres tirées au hasard.
+
+### ADR-003 — Deux dépendances C++ vendorées, et pas une de plus
+Le moteur embarque, copiées dans `backend/thirdparty/` :
+
+- **civetweb v1.16** (MIT) : HTTP statique et WebSocket, un seul `.c`. Le tag
+  est épinglé : `master` ne compile pas ;
+- **nlohmann/json v3.11.3** (MIT) : un seul en-tête.
+
+Le Makefile les compile directement : pas de CMake, pas de submodule, pas de
+réseau, `make` marche sur une machine nue le jour de la soutenance.
+
+**Pourquoi le revirement.** La décision initiale était « zéro dépendance » :
+écrire à la main HTTP, SHA-1, base64, le cadrage RFC 6455 et un petit JSON.
+C'est du code sans rapport avec l'intérêt du projet, l'IA, et c'est
+précisément la couche où un bug de parsing donne un crash, donc un 0. Deux
+bibliothèques mûres, testées et sous licence MIT coûtent moins cher que leur
+réécriture et que les tests qu'elle aurait exigés.
+
+**Ce que ça coûte** : 22 000 lignes de C que nous ne maîtrisons pas. On ne
+leur fait confiance qu'à travers `make fuzz`, sous ASan et UBSan, et
+ThreadSanitizer n'y signale qu'une course bénigne dans `mg_stop`.
+L'enveloppe `src/net/server.cpp` rattrape toute exception avant qu'elle ne
+traverse un callback C, et borne la taille des messages.
 
 ### ADR-004 — WebSocket plutôt que SSE
 Le moteur et l'UI ont besoin des deux sens : le client envoie des commandes, le
@@ -94,25 +115,25 @@ socket ordonnée**, ce qui supprime par construction toute course entre une
 réponse HTTP et un événement poussé.
 
 Le gain décisif n'est pas le débit, dérisoire ici, c'est le **canal montant
-permanent**. Une socket déjà ouverte se sonde depuis le callback de progression
-de la recherche : c'est la seule voie praticable vers un bouton « Stop » qui
-agisse pendant le calcul (voir la limite d'ADR-007). Avec un `POST`, il aurait
-fallu accepter et parser une requête HTTP entière au milieu du minimax.
+permanent**. Le `stop` arrive sur la socket déjà ouverte pendant que la
+recherche tourne sur un autre thread, et l'arrête aussitôt (ADR-007). Avec un
+`POST`, il aurait fallu accepter et parser une requête HTTP entière au milieu
+du minimax.
 
 Ce que ça coûte, et il faut l'assumer :
 
-- le handshake `Sec-WebSocket-Accept`, donc SHA-1 et base64 écrits à la main
-  (ADR-003) ;
-- le framing RFC 6455 : masquage XOR obligatoire des trames client → serveur,
-  longueurs sur 7/16/64 bits, trames de contrôle ping/pong/close. Environ
-  200 lignes de C++ contre 60 pour un flux `text/event-stream` ;
-- du parsing binaire là où SSE n'avait que du texte ligne à ligne. Le sujet
-  sanctionne tout crash par un 0 : cette couche se teste, y compris sur des
-  trames tronquées ou aberrantes, avant d'être considérée comme acquise ;
-- la perte du `curl` : déboguer le protocole nu demande `websocat`, à installer
-  avant la soutenance ;
-- la reconnexion automatique d'`EventSource`, à réécrire en TypeScript (une
-  dizaine de lignes avec backoff, voir `docs/PROTOCOL.md`).
+- la poignée de main, le cadrage RFC 6455 et les trames de contrôle sont
+  délégués à civetweb (ADR-003) ; le ping/pong est activé, avec un ping après
+  15 s de silence ;
+- civetweb livre des **trames**, pas des messages : `src/net/server.cpp`
+  recolle les fragments, avec une limite de 1 Mio par message ;
+- civetweb lit les trames d'une connexion **une par une** : aucun calcul long
+  ne doit tourner dans un gestionnaire, sinon le `stop` suivant n'est pas lu
+  (ADR-007) ;
+- la perte du `curl` : déboguer le protocole nu demande `websocat`, ou les
+  scripts Node de `backend/tests/` ;
+- la reconnexion automatique d'`EventSource`, réécrite en TypeScript dans
+  `ui/src/useEngine.ts` (backoff de 250 ms à 5 s).
 
 **Rejeté** : SSE plus `POST /api/*` — deux canaux asymétriques, aucun moyen
 d'être lu pendant la recherche, mais nettement moins de C++ à écrire et
@@ -162,21 +183,42 @@ les deux coques**, il n'y a rien à dupliquer.
 **En contrepartie** : quiconque touche à `ui/src` doit lancer `make ui` et
 commiter `ui/dist` dans le même commit. Un `dist` périmé est un bug silencieux.
 
-### ADR-007 — Serveur mono-thread
-Un seul client local, jeu au tour par tour : ni concurrence ni backpressure à
-gérer. Une boucle `poll()`, et la recherche tourne sur le thread du serveur en
-poussant sa progression par un callback qui écrit directement une trame sur le
-descripteur de la socket WebSocket.
+### ADR-007 — Un seul thread possède la partie
+Un seul client local, jeu au tour par tour : la partie n'a besoin d'**aucun
+verrou** si un seul thread y touche. C'est le choix fait, après deux versions
+mesurées puis abandonnées :
 
-L'UI n'attend aucun accusé de réception : elle a envoyé sa commande et écoute la
-socket. Rien ne bloque de son côté pendant le calcul de l'IA.
+1. **mono-thread** (`num_threads 1`) : une socket WebSocket ouverte occupe le
+   thread civetweb pour toute sa durée, le HTTP et un second client partent en
+   timeout ;
+2. **un `std::mutex` dans `Session`**, la recherche tournant dans le
+   gestionnaire civetweb : civetweb lit les trames d'une connexion une par une,
+   donc le `stop` envoyé pendant une recherche n'était lu qu'après elle. Le
+   bouton Stop n'a jamais rien arrêté, et une partie IA contre IA bloquait tout
+   le serveur, nouvel onglet compris.
 
-**Limite connue** : pendant la recherche, le serveur ne lit aucun message
-entrant — le bouton « Stop » n'agit donc qu'entre deux coups. La socket étant
-déjà ouverte, la levée est plus simple qu'avec un transport requête/réponse :
-il suffit de sonder le descripteur depuis le callback de progression. Pour un
-vrai Stop coopératif ou un mode spectateur, il faudra tout de même un thread de
-recherche et une file de messages réveillant `poll()` par self-pipe.
+**Modèle actuel** (`src/server/session.cpp`) :
+
+- les gestionnaires civetweb ne touchent jamais `Game` : ils déposent une tâche
+  dans une file et rendent la main, la trame suivante est lue aussitôt ;
+- un **thread de travail** unique exécute les tâches dans l'ordre et possède
+  `Game`, `Engine` et la banque de temps ;
+- `stop` agit depuis le gestionnaire, par deux atomiques : le drapeau d'arrêt
+  du moteur et `halted_`, qui empêche le coup IA suivant. Le callback de
+  progression réarme l'arrêt, car `Engine::search` efface le drapeau en
+  démarrant ;
+- chaque coup IA est **sa propre tâche** : entre deux coups, `new-game`,
+  `undo` ou un nouvel onglet passent. Il n'y en a jamais deux en attente ;
+- une connexion neuve passe en tête de file, un seul `suggest` peut attendre ;
+- `Server::sendText` écrit **sous le verrou** des clients : le gestionnaire de
+  fermeture le prend aussi, donc civetweb ne peut pas libérer une connexion
+  pendant qu'un autre thread y écrit ;
+- civetweb tourne avec **32 threads**, car chaque WebSocket ouverte en garde un.
+  Avec 4, le quatrième onglet ne recevait plus rien.
+
+Vérifié par `make fuzz` (rafales de commandes pendant une partie IA contre IA,
+déconnexions en pleine recherche, huit clients à la fois) sous ASan/UBSan, et
+par ThreadSanitizer : aucune course dans notre code.
 
 ### ADR-008 — `Game` est le seul arbitre
 Deux chemins distincts, volontairement :
@@ -193,17 +235,28 @@ optimiste. C'est un compromis assumé, à expliquer en soutenance.
 
 ## Le chemin critique : profondeur 10 en 0,5 s
 
-Sur un 19×19 le branchement brut est 361. Pour tenir, il faut l'effondrer :
+Sur un 19×19 le branchement brut est 361. Ce qui a été fait, dans l'ordre où
+ça a été mesuré, avec `make bench` comme juge (budget 450 ms) :
 
-| levier | effet attendu | module |
+| levier | effet mesuré | module |
 |---|---|---|
-| voisinage rayon 2 | 361 → ~30 | 1 |
-| tri des coups + élagage avant | ~30 → ~12 explorés | 2+3 |
-| alpha-bêta bien ordonné | branchement effectif ≈ √b | 2 |
-| table de transposition | 20-40 % de nœuds en moins | 2 |
-| éval incrémentale | 5-10× sur le coût par feuille | 3 |
-| détection de menaces forcées | effondre les lignes tactiques | 2+3 |
+| table de motifs (65 536 entrées), éval par niveaux | profondeur inchangée, éval juste ; 6 % du temps | 3 |
+| `moveScore` sur la même table (attaque + défense + capture) | gain forcé trouvé en 1 911 nœuds au lieu de 15 067 | 3 |
+| `movegen` partant des pierres au lieu des cases vides | ×1,5 nœuds/s, arbre identique | 1 |
+| table de transposition | −42 % de nœuds à 8 candidats | 2 |
+| une seule fenêtre par axe dans `moveScore` (miroir par bits) | +40 % nœuds/s | 3 |
+| faisceau adaptatif : 20 → −3 par niveau → 5, coups forcés seuls si un cinq menace | profondeur 6-7 → 8-9, **et 19-5 en match** contre le faisceau large | 2 |
+| PVS | −5 à −8 % de nœuds | 2 |
+| bitboards par ligne (ADR-002) | +50 % nœuds/s | 1 |
 
-`make bench` devra mesurer profondeur atteinte et nœuds/s sur des positions
-fixes. **Aucune optimisation ne se justifie sans un avant/après chiffré** — et
-la première tâche du module 2 est d'établir la ligne de base.
+Essayés, mesurés, **écartés** : coups killer (le bonus de tri change les coups
+que le faisceau garde : jusqu'à +25 % de nœuds), bonus de trait dans l'éval (aucun nœud
+gagné : un décalage constant ne change aucune décision d'alpha-bêta),
+réductions de fin de liste (8-8 en match, pas de gain en partie réelle).
+
+Les 4 positions de `make bench` sont des débuts de partie, le pire cas. Le
+sujet juge une **moyenne** : `make bench-games` joue des parties entières dans
+les conditions de `Session` (profondeur plafonnée à 10, banque de temps de
+PROTOCOL.md). Dernière mesure : 137 ms en moyenne, profondeur 10 sur 96 % des
+coups non forcés. **Aucune optimisation ne se justifie sans un avant/après
+chiffré**, et la qualité de jeu se vérifie en match, pas seulement au bench.

@@ -21,11 +21,20 @@ constexpr int kPortAttempts = 20;
 // Websocket path we promote. Anything else is served as a static file.
 constexpr const char* kWebsocketPath = "/ws";
 
-// A websocket connection holds its worker for its whole lifetime, so a single
-// thread would make the server unable to server anything else, not even
-// index.html. Measured: with one thread, an open socket blocks every other
-// request.
-constexpr const char* kWorkerThreads = "4";
+// A websocket connection holds its worker for its whole lifetime, so the pool
+// bounds how many tabs can be open at once: past it, nothing is served, not
+// even index.html. Measured with 4: a fourth tab hung. Idle threads cost only
+// address space.
+constexpr const char* kWorkerThreads = "32";
+
+// Idle time after which civetweb pings a websocket client. A client that
+// leaves 6 pings in a row unanswered (MG_MAX_UNANSWERED_PING, civetweb's
+// default of 5, plus one) is closed: about a minute and a half.
+constexpr const char* kPingIntervalMs = "15000";
+
+// Largest message a client may send, fragments included. A command is a few
+// hundred bytes; past this, the connection is closed instead of buffering.
+constexpr size_t kMaxMessageBytes = size_t{1} << 20;
 
 }  // namespace
 
@@ -83,16 +92,24 @@ struct Server::Impl {
 	static int onWsConnect(const mg_connection*, void*) { return 0; }
 
 	// Handshake is done: register the client and tell the protocol layer.
+	// Out of memory, the client stays unregistered and its frames are ignored:
+	// nothing may be thrown back into civetweb's C code.
 	static void onWsReady(mg_connection* connection, void* user) {
 		auto* impl = static_cast<Impl*>(user);
-		const ClientId id = impl->add(connection);
-		mg_set_user_connection_data(connection, new Cookie{impl, id});
-		if (impl->onConnect) {
-			impl->onConnect(id);
+		try {
+			const ClientId id = impl->add(connection);
+			mg_set_user_connection_data(connection, new Cookie{impl, id});
+			if (impl->onConnect) {
+				impl->onConnect(id);
+			}
+		} catch (...) {
+			return;
 		}
 	}
 
-	// One frame arrived. Rebuild the message, then hand it over on FIN.
+	// One frame arrived. Rebuild the message, then hand it over on FIN. A
+	// message over kMaxMessageBytes, or any failure, closes the connection
+	// (returning 0) rather than letting an exception reach civetweb.
 	static int onWsData(mg_connection* connection, int bits, char* data, size_t length,
 						void* user) {
 		auto* impl = static_cast<Impl*>(user);
@@ -109,24 +126,34 @@ struct Server::Impl {
 			return 1;
 		}
 
-		std::string message;
-		{
-			const std::lock_guard<std::mutex> lock(impl->mutex);
-			const auto found = impl->clients.find(cookie->id);
-			if (found == impl->clients.end()) {
-				return 1;
+		try {
+			std::string message;
+			{
+				const std::lock_guard<std::mutex> lock(impl->mutex);
+				const auto found = impl->clients.find(cookie->id);
+				if (found == impl->clients.end()) {
+					return 1;
+				}
+				std::string& pending = found->second.pending;
+				if (pending.size() + length > kMaxMessageBytes) {
+					pending.clear();
+					pending.shrink_to_fit();
+					return 0;
+				}
+				pending.append(data, length);
+				if ((bits & 0x80) == 0) {
+					return 1;
+				}
+				message.swap(pending);
 			}
-			found->second.pending.append(data, length);
-			if ((bits & 0x80) == 0) {
-				return 1;
-			}
-			message.swap(found->second.pending);
-		}
 
-		if (impl->onText) {
-			impl->onText(cookie->id, message);
+			if (impl->onText) {
+				impl->onText(cookie->id, message);
+			}
+			return 1;
+		} catch (...) {
+			return 0;
 		}
-		return 1;
 	}
 
 	// The client is gone: drop it and free its cookie.
@@ -168,10 +195,19 @@ bool Server::start() {
 	for (int attempt = 0; attempt < kPortAttempts; ++attempt) {
 		const uint16_t candidate = static_cast<uint16_t>(impl_->port + attempt);
 		const std::string listening = "127.0.0.1:" + std::to_string(candidate);
-		const char* options[] = {
-			"document_root", impl_->docRoot.c_str(), "listening_ports",			 listening.c_str(),
-			"num_threads",	 kWorkerThreads,		 "enable_directory_listing", "no",
-			nullptr};
+		const char* options[] = {"document_root",
+								 impl_->docRoot.c_str(),
+								 "listening_ports",
+								 listening.c_str(),
+								 "num_threads",
+								 kWorkerThreads,
+								 "enable_directory_listing",
+								 "no",
+								 "enable_websocket_ping_pong",
+								 "yes",
+								 "websocket_timeout_ms",
+								 kPingIntervalMs,
+								 nullptr};
 		mg_context* context = mg_start(&callbacks, impl_.get(), options);
 		if (context != nullptr) {
 			impl_->context = context;
