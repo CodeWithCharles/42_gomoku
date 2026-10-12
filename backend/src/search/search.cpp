@@ -35,6 +35,10 @@ namespace {
 
 inline constexpr size_t kTTSize = size_t{1} << 20;
 inline constexpr Score kMateZone = kScoreWin - 1000;
+inline constexpr Score kForcedMove = 500000;
+inline constexpr int kForcedSpare = 2;
+inline constexpr int kBeamStep = 3;
+inline constexpr int kMinBeam = 5;
 
 enum Bound : uint8_t { kExact = 1, kLower = 2, kUpper = 3 };
 
@@ -61,13 +65,17 @@ Score terminalValue(GameStatus status, Player mover, int ply) {
 }
 
 // Sorts `moves` by decreasing static score, `first` ahead of everything when
-// it is present. Scores are computed once, not inside the comparator.
-void orderMoves(const Board& b, Player p, MoveList& moves, Idx first) {
+// it is present. Returns how many moves win or stop a five on the spot.
+int orderMoves(const Board& b, Player p, MoveList& moves, Idx first) {
 	std::array<std::pair<Score, Idx>, kCellCount> scored{};
+	int forced = 0;
 	for (int k = 0; k < moves.count; ++k) {
 		const Idx move = moves.moves[k];
-		const Score bonus = move == first ? kScoreInf : 0;
-		scored[k] = {eval::moveScore(b, move, p) + bonus, move};
+		const Score score = eval::moveScore(b, move, p);
+		if (score >= kForcedMove) {
+			++forced;
+		}
+		scored[k] = {score + (move == first ? kScoreInf : 0), move};
 	}
 	std::sort(scored.begin(), scored.begin() + moves.count,
 			  [](const std::pair<Score, Idx>& a, const std::pair<Score, Idx>& c) {
@@ -76,6 +84,23 @@ void orderMoves(const Board& b, Player p, MoveList& moves, Idx first) {
 	for (int k = 0; k < moves.count; ++k) {
 		moves.moves[k] = scored[k].second;
 	}
+	return forced;
+}
+
+// Keeps the best candidates of a node at `ply`: `maxCandidates` at the root and
+// for its replies, kBeamStep fewer at each ply below, never under kMinBeam.
+// When a five is on the line, only the forced moves and a spare are kept.
+// A limit of 0 or less keeps everything.
+void trimMoves(MoveList& moves, int maxCandidates, int ply, int forced) {
+	if (maxCandidates <= 0) {
+		return;
+	}
+	int width = std::max(kMinBeam, maxCandidates - kBeamStep * std::max(0, ply - 1));
+	width = std::min(width, maxCandidates);
+	if (forced > 0) {
+		width = std::min(width, forced + kForcedSpare);
+	}
+	moves.count = std::min(moves.count, width);
 }
 
 }  // namespace
@@ -166,10 +191,8 @@ Score Engine::negamax(Game& game, int depth, int ply, Score alpha, Score beta) {
 		++stats_.leaves;
 		return eval::evaluate(game.board(), game.toMove(), game.pairs());
 	}
-	orderMoves(game.board(), game.toMove(), moves, ttMove);
-	if (limits_.maxCandidates > 0 && moves.count > limits_.maxCandidates) {
-		moves.count = limits_.maxCandidates;
-	}
+	const int forced = orderMoves(game.board(), game.toMove(), moves, ttMove);
+	trimMoves(moves, limits_.maxCandidates, ply, forced);
 
 	Score best = -kScoreInf;
 	Idx bestMove = kNoIdx;
@@ -226,7 +249,8 @@ SearchResult Engine::search(Game& game, const SearchLimits& limits, const Progre
 		return SearchResult{};
 	}
 
-	orderMoves(game.board(), me, root, kNoIdx);
+	const int forced = orderMoves(game.board(), me, root, kNoIdx);
+	trimMoves(root, limits.maxCandidates, 0, forced);
 	Idx best = root.moves[0];
 
 	for (int depth = 1; depth <= limits.maxDepth; ++depth) {
