@@ -10,7 +10,6 @@
 #include "gomoku/eval.hpp"
 
 #include <bit>
-#include <cstdlib>
 
 namespace gomoku::eval {
 namespace {
@@ -30,6 +29,8 @@ enum Shape : uint8_t {
 inline constexpr int kPatternCount = 1 << 16;
 inline constexpr uint8_t kShapeMask = 0x0F;
 inline constexpr int kCaptureShift = 4;
+inline constexpr int kTakeShift = 6;
+inline constexpr uint8_t kCountMask = 0x03;
 inline constexpr Score kDecisive = kScoreWin / 2;
 
 using Cells = std::array<CellCode, kWindowCells>;
@@ -125,6 +126,16 @@ int captureThreats(const Cells& c) {
 	return (left ? 1 : 0) + (right ? 1 : 0);
 }
 
+// Pairs of foe stones a stone on the cnetre captures right now, 0 to 2.
+int capturesNow(const Cells& c) {
+	const int m = kWindowRadius;
+	const bool left =
+		c[m - 1] == CellCode::Foe && c[m - 2] == CellCode::Foe && c[m - 3] == CellCode::Own;
+	const bool right =
+		c[m + 1] == CellCode::Foe && c[m + 2] == CellCode::Foe && c[m + 3] == CellCode::Own;
+	return (left ? 1 : 0) + (right ? 1 : 0);
+}
+
 // Level 1: fives and fours, read straight from the cells.
 void addFours(PatternTable& t) {
 	for (int i = 0; i < kPatternCount; ++i) {
@@ -141,7 +152,8 @@ void addFours(PatternTable& t) {
 			const int wins = fiveCompletions(c);
 			s = wins >= 2 ? kOpenFour : wins == 1 ? kFour : kNone;
 		}
-		t[i] = static_cast<uint8_t>(s | (captureThreats(c) << kCaptureShift));
+		t[i] = static_cast<uint8_t>(s | (captureThreats(c) << kCaptureShift) |
+									(capturesNow(c) << kTakeShift));
 	}
 }
 
@@ -215,7 +227,7 @@ Score shapeValue(Shape s, const EvalWeights& w) {
 	}
 }
 
-// Value of `n` captured pairs, stepper as the capture win gets closer.
+// Value of `n` captured pairs, steeper as the capture win gets closer.
 Score pairsValue(int n, const EvalWeights& w) {
 	static constexpr std::array<int, kPairsToWin + 1> kScale = {0, 1, 3, 6, 12, 24};
 	return kScale[n < 0 ? 0 : n > kPairsToWin ? kPairsToWin : n] * w.capturedPair;
@@ -233,7 +245,7 @@ void tally(const Board& b, std::array<Tally, 2>& out) {
 		for (int axis = 0; axis < 4; ++axis) {
 			const uint8_t entry = table[indexOf(b.window(i, axis, p))];
 			++t.shapes[entry & kShapeMask];
-			t.captureThreats += entry >> kCaptureShift;
+			t.captureThreats += (entry >> kCaptureShift) & kCountMask;
 		}
 	}
 }
@@ -284,31 +296,22 @@ Score evaluate(const Board& b, Player toMove, const std::array<int, 2>& pairs) {
 
 // Static score of a candidate move, for ordering only.
 Score moveScore(const Board& b, Idx i, Player p) {
+	static constexpr std::array<Score, kShapeCount> kAttack = {
+		0, 20, 60, 300, 400, 1500, 20000, 1000000,
+	};
+	static constexpr std::array<Score, kShapeCount> kDefend = {
+		0, 10, 30, 200, 250, 1000, 10000, 500000,
+	};
+	const PatternTable& table = patterns();
 	const Player foe = opponent(p);
 	Score score = 0;
 	for (int axis = 0; axis < 4; ++axis) {
-		const Delta d = kAxes[axis];
-		int own = 0;
-		int block = 0;
-		for (int sign = -1; sign <= 1; sign += 2) {
-			int x = xOf(i) + sign * d.dx;
-			int y = yOf(i) + sign * d.dy;
-			while (inBounds(x, y) && b.at(x, y) == p) {
-				++own;
-				x += sign * d.dx;
-				y += sign * d.dy;
-			}
-			x = xOf(i) + sign * d.dx;
-			y = yOf(i) + sign * d.dy;
-			while (inBounds(x, y) && b.at(x, y) == foe) {
-				++block;
-				x += sign * d.dx;
-				y += sign * d.dy;
-			}
-		}
-		score += own * own * 16 + block * block * 12;
+		const uint8_t mine = table[indexOf(b.window(i, axis, p))];
+		const uint8_t theirs = table[indexOf(b.window(i, axis, foe))];
+		score += kAttack[mine & kShapeMask] + kDefend[theirs & kShapeMask];
+		score += ((mine >> kTakeShift) & kCountMask) * 2000;
+		score += ((theirs >> kTakeShift) & kCountMask) * 1500;
 	}
-	score += 18 - std::abs(xOf(i) - kBoardSize / 2) - std::abs(yOf(i) - kBoardSize / 2);
 	return score;
 }
 

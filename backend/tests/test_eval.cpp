@@ -66,4 +66,35 @@ TEST(eval_four_pairs_and_a_capture_threat_is_decisive) {
 	CHECK(eval::evaluate(b, Player::Black, pairs) > eval::weights().five);
 }
 
+TEST(move_score_puts_the_win_before_the_defence) {
+	Board b;
+	row(b, Player::White, {4});
+	row(b, Player::Black, {5, 6, 7, 8});
+	for (int x = 5; x < 8; ++x) {
+		b.place(idxOf(x, 13), Player::White);
+	}
+	CHECK(eval::moveScore(b, idxOf(9, 9), Player::Black) >
+		  eval::moveScore(b, idxOf(8, 13), Player::Black));
+}
+
+TEST(move_score_ignores_a_dead_line) {
+	Board b;
+	row(b, Player::Black, {4, 9});
+	row(b, Player::White, {5, 6, 7});
+	b.place(idxOf(12, 13), Player::Black);
+	b.place(idxOf(13, 13), Player::Black);
+	CHECK(eval::moveScore(b, idxOf(14, 13), Player::Black) >
+		  eval::moveScore(b, idxOf(8, 9), Player::Black));
+}
+
+TEST(move_score_prefers_a_capture_to_a_new_three) {
+	Board b;
+	row(b, Player::Black, {5});
+	row(b, Player::White, {6, 7});
+	b.place(idxOf(12, 13), Player::Black);
+	b.place(idxOf(13, 13), Player::Black);
+	CHECK(eval::moveScore(b, idxOf(8, 9), Player::Black) >
+		  eval::moveScore(b, idxOf(14, 13), Player::Black));
+}
+
 }  // namespace
