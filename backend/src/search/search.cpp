@@ -15,12 +15,39 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <new>
 
 #include "gomoku/eval.hpp"
 #include "gomoku/movegen.hpp"
 
 namespace gomoku {
+
+// `bound` says whether `score` is exact or only a lower or upper bound, as
+// aplha-beta left it. 16 bytes, so the table holds 2^20 of them in 16 MiB.
+struct TTEntry {
+	uint64_t key = 0;
+	Score score = 0;
+	Idx best = kNoIdx;
+	int8_t depth = -1;
+	uint8_t bound = 0;
+};
 namespace {
+
+inline constexpr size_t kTTSize = size_t{1} << 20;
+inline constexpr Score kMateZone = kScoreWin - 1000;
+
+enum Bound : uint8_t { kExact = 1, kLower = 2, kUpper = 3 };
+
+// Win scores carry the ply they were found at; the table stores them relative
+// to the node instead, so they stay right when reached through another path.
+Score toTT(Score s, int ply) {
+	return s >= kMateZone ? s + ply : s <= -kMateZone ? s - ply : s;
+}
+
+// Inverse of toTT, back to a score relative to the root.
+Score fromTT(Score s, int ply) {
+	return s >= kMateZone ? s - ply : s <= -kMateZone ? s + ply : s;
+}
 
 // Value of a finished game seen from `mover`. The ply term makes the search
 // prefer winning soon and losing late.
@@ -53,7 +80,45 @@ void orderMoves(const Board& b, Player p, MoveList& moves, Idx first) {
 
 }  // namespace
 
-Engine::Engine() = default;
+// Allocates the TT. Without memory the engine still works,
+// it only loses the table.
+Engine::Engine() : tt_(new (std::nothrow) TTEntry[kTTSize]) {}
+
+// Defined here, where TTEntry is complete, so unique_ptr can delete it.
+Engine::~Engine() = default;
+
+// Zobrist key of the stones, the side to move and the captured pairs.
+uint64_t Engine::positionKey(const Game& game) const {
+	const std::array<int, 2> pairs = game.pairs();
+	uint64_t key = game.board().hash();
+	if (game.toMove() == Player::Black) {
+		key ^= sideToMoveKey();
+	}
+	return key ^ (static_cast<uint64_t>(pairs[0] * 6 + pairs[1]) * 0x9E3779B97F4A7C15ULL);
+}
+
+// Slot holding `key`, or nullptr when the table is missing or holds another position.
+TTEntry* Engine::probe(uint64_t key) {
+	if (!tt_) {
+		return nullptr;
+	}
+	TTEntry& e = tt_[key & (kTTSize - 1)];
+	return e.key == key && e.depth >= 0 ? &e : nullptr;
+}
+
+// Records a finished node, classifying `score` against the original window.
+void Engine::store(uint64_t key, int depth, int ply, Score score, Score alpha0, Score beta,
+				   Idx best) {
+	if (!tt_ || timeUp_) {
+		return;
+	}
+	TTEntry& e = tt_[key & (kTTSize - 1)];
+	e.key = key;
+	e.score = toTT(score, ply);
+	e.best = best;
+	e.depth = static_cast<int8_t>(depth);
+	e.bound = score <= alpha0 ? kUpper : score >= beta ? kLower : kExact;
+}
 
 // Asks for an early stop from another thread.
 void Engine::requestStop() {
@@ -68,15 +133,31 @@ bool Engine::outOfTime() const {
 	return std::chrono::steady_clock::now() - start_ >= limits_.budget;
 }
 
-// Negamax with alpha-beta, socring from the point of view of the side to move.
+// Negamax with alpha-beta, scoring from the point of view of the side to move.
 Score Engine::negamax(Game& game, int depth, int ply, Score alpha, Score beta) {
 	++stats_.nodes;
 	if ((stats_.nodes & 0x3FF) == 0 && outOfTime()) {
+		timeUp_ = true;
 		return 0;
 	}
 	if (depth <= 0) {
 		++stats_.leaves;
 		return eval::evaluate(game.board(), game.toMove(), game.pairs());
+	}
+
+	const uint64_t key = positionKey(game);
+	const Score alpha0 = alpha;
+	Idx ttMove = kNoIdx;
+	if (const TTEntry* e = probe(key)) {
+		++stats_.ttHits;
+		ttMove = e->best;
+		if (e->depth >= depth) {
+			const Score s = fromTT(e->score, ply);
+			if (e->bound == kExact || (e->bound == kLower && s >= beta) ||
+				(e->bound == kUpper && s <= alpha)) {
+				return s;
+			}
+		}
 	}
 
 	MoveList moves;
@@ -85,12 +166,13 @@ Score Engine::negamax(Game& game, int depth, int ply, Score alpha, Score beta) {
 		++stats_.leaves;
 		return eval::evaluate(game.board(), game.toMove(), game.pairs());
 	}
-	orderMoves(game.board(), game.toMove(), moves, kNoIdx);
+	orderMoves(game.board(), game.toMove(), moves, ttMove);
 	if (limits_.maxCandidates > 0 && moves.count > limits_.maxCandidates) {
 		moves.count = limits_.maxCandidates;
 	}
 
 	Score best = -kScoreInf;
+	Idx bestMove = kNoIdx;
 	for (int k = 0; k < moves.count; ++k) {
 		PlayedMove undo;
 		game.makeMove(moves.moves[k], undo);
@@ -102,6 +184,7 @@ Score Engine::negamax(Game& game, int depth, int ply, Score alpha, Score beta) {
 
 		if (value > best) {
 			best = value;
+			bestMove = moves.moves[k];
 		}
 		if (best > alpha) {
 			alpha = best;
@@ -111,9 +194,11 @@ Score Engine::negamax(Game& game, int depth, int ply, Score alpha, Score beta) {
 			break;
 		}
 		if (outOfTime()) {
+			timeUp_ = true;
 			break;
 		}
 	}
+	store(key, depth, ply, best, alpha0, beta, bestMove);
 	return best;
 }
 
@@ -123,6 +208,7 @@ SearchResult Engine::search(Game& game, const SearchLimits& limits, const Progre
 	stop_.store(false, std::memory_order_relaxed);
 	start_ = std::chrono::steady_clock::now();
 	stats_ = SearchStats{};
+	timeUp_ = false;
 
 	const Player me = game.toMove();
 

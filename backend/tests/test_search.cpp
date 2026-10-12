@@ -196,6 +196,20 @@ TEST(search_records_beta_cutoffs) {
 	CHECK(result.stats.leaves > 0);
 }
 
+TEST(search_reuses_the_transposition_table) {
+	Game g;
+	CHECK(playAll(g, {idxOf(9, 9), idxOf(9, 10), idxOf(8, 9), idxOf(10, 10)}));
+
+	Engine engine;
+	SearchLimits limits;
+	limits.maxDepth = 5;
+	limits.budget = std::chrono::milliseconds(400);
+	const SearchResult result = engine.search(g, limits);
+
+	CHECK(result.stats.ttHits > 0);
+	CHECK(g.check(result.best, g.toMove()) == Legality::Legal);
+}
+
 TEST(forward_pruning_shrinks_the_tree) {
 	Game g;
 	CHECK(playAll(g, {idxOf(9, 9), idxOf(9, 10), idxOf(8, 9), idxOf(10, 10)}));

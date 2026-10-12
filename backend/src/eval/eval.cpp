@@ -61,6 +61,12 @@ int indexOf(LineWindow w) {
 	return static_cast<int>((w & 0xFFU) | ((w >> 10) << 8));
 }
 
+// The same pattern seen from the other side: Own and Foe swap, Empty and
+// Wall stay, which is swapping the two bits of every cell.
+int mirrored(int index) {
+	return ((index & 0x5555) << 1) | ((index & 0xAAAA) >> 1);
+}
+
 // Length of the own run crossing the centre; `lo` and `hi` receive its ends.
 int runThroughCentre(const Cells& c, int& lo, int& hi) {
 	lo = kWindowRadius;
@@ -294,7 +300,8 @@ Score evaluate(const Board& b, Player toMove, const std::array<int, 2>& pairs) {
 	return sideScore(mine, pairs[me], w) - sideScore(theirs, pairs[foe], w);
 }
 
-// Static score of a candidate move, for ordering only.
+// Static score of a candidate move, for ordering only: the shapes `p` makes
+// by playing on `i` (attack) plus the ones it denies the foe there (defence).
 Score moveScore(const Board& b, Idx i, Player p) {
 	static constexpr std::array<Score, kShapeCount> kAttack = {
 		0, 20, 60, 300, 400, 1500, 20000, 1000000,
@@ -303,11 +310,11 @@ Score moveScore(const Board& b, Idx i, Player p) {
 		0, 10, 30, 200, 250, 1000, 10000, 500000,
 	};
 	const PatternTable& table = patterns();
-	const Player foe = opponent(p);
 	Score score = 0;
 	for (int axis = 0; axis < 4; ++axis) {
-		const uint8_t mine = table[indexOf(b.window(i, axis, p))];
-		const uint8_t theirs = table[indexOf(b.window(i, axis, foe))];
+		const int index = indexOf(b.window(i, axis, p));
+		const uint8_t mine = table[index];
+		const uint8_t theirs = table[mirrored(index)];
 		score += kAttack[mine & kShapeMask] + kDefend[theirs & kShapeMask];
 		score += ((mine >> kTakeShift) & kCountMask) * 2000;
 		score += ((theirs >> kTakeShift) & kCountMask) * 1500;

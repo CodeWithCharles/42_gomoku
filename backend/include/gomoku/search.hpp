@@ -23,6 +23,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -60,9 +61,13 @@ struct SearchResult {
 	SearchStats stats;
 };
 
+// One slot of the transposition table, private to search.cpp.
+struct TTEntry;
+
 class Engine {
   public:
 	Engine();
+	~Engine();
 
 	// `game` is mutated while searching but comes back untouched. Returns
 	// kNoIdx only when no legal move exists.
@@ -75,11 +80,16 @@ class Engine {
   private:
 	Score negamax(Game& game, int depth, int ply, Score alpha, Score beta);
 	bool outOfTime() const;
+	uint64_t positionKey(const Game& game) const;
+	TTEntry* probe(uint64_t key);
+	void store(uint64_t key, int depth, int ply, Score score, Score alpha0, Score beta, Idx best);
 
 	SearchLimits limits_{};
 	SearchStats stats_{};
 	std::atomic<bool> stop_{false};
 	std::chrono::steady_clock::time_point start_{};
+	std::unique_ptr<TTEntry[]> tt_;
+	bool timeUp_ = false;
 };
 
 }  // namespace gomoku

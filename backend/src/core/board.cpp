@@ -120,10 +120,31 @@ int Board::countLine(Idx i, int axis, Player p) const {
 	return count;
 }
 
+static_assert(static_cast<int>(Player::None) == static_cast<int>(CellCode::Empty) &&
+				  static_cast<int>(Player::Black) == static_cast<int>(CellCode::Own) &&
+				  static_cast<int>(Player::White) == static_cast<int>(CellCode::Foe),
+			  "Board::window reads cells as Black's codes");
+
+// Window centred on `i` along `axis`. When the 9 cells are all on the board,
+// they are read with a fixed stride as Black sees them (Player and CellCode
+// share their values), then Own and Foe are swapped for White.
 LineWindow Board::window(Idx i, int axis, Player viewer) const {
 	const Delta d = kAxes[axis];
 	const int cx = xOf(i);
 	const int cy = yOf(i);
+	const int r = kWindowRadius;
+	if (inBounds(cx - r * d.dx, cy - r * d.dy) && inBounds(cx + r * d.dx, cy + r * d.dy)) {
+		const int stride = d.dx + d.dy * kBoardSize;
+		const int first = i - r * stride;
+		LineWindow packed = 0;
+		for (int k = 0; k < kWindowCells; ++k) {
+			packed |= static_cast<LineWindow>(cells_[first + k * stride]) << (2 * k);
+		}
+		if (viewer == Player::White) {
+			packed = ((packed & 0x15555U) << 1) | ((packed & 0x2AAAAU) >> 1);
+		}
+		return packed;
+	}
 	LineWindow packed = 0;
 	for (int k = -kWindowRadius; k <= kWindowRadius; ++k) {
 		const int x = cx + k * d.dx;
