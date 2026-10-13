@@ -1,11 +1,12 @@
 # Règles — spécification et cas limites
 
 Version 42 du Gomoku. Ce document est la référence du **module 1** : chaque
-section se termine par les tests à écrire dans `tests/`.
+section se termine par les cas que couvre `backend/tests/` (`test_rules.cpp`,
+`test_game.cpp`).
 
 Les noms de fonctions cités (`rules::createsDoubleThree`, `Game::updateStatus`…)
-décrivent l'**API visée**, pas du code existant : le dépôt ne contient encore
-que cette documentation.
+sont ceux de `backend/include/gomoku/rules.hpp` et `game.hpp`, implémentés
+dans `backend/src/core/`.
 
 ## 1. Base
 
@@ -34,7 +35,7 @@ Points durs :
 - Les intersections libérées redeviennent jouables normalement.
 - **10 pierres capturées (5 paires) = victoire.**
 
-Tests à écrire : capture dans les 8 directions ; capture multiple en un coup ;
+Tests : capture dans les 8 directions ; capture multiple en un coup ;
 capture au bord du plateau ; `X O O O X` ne capture rien ; se poser entre deux
 adverses ne se fait pas capturer ; la même paire devient capturable après qu'un
 encadrant a été repris ; victoire à la 5ᵉ paire ; `unmakeMove` restaure bien les
@@ -68,7 +69,7 @@ Points durs :
 Implémentation : `rules::createsDoubleThree` pose la pierre, compte au plus un
 trois-libre par axe (4 axes), et restaure le plateau.
 
-Tests à écrire : croix de quatre pierres → le centre est interdit ; un seul
+Tests : croix de quatre pierres → le centre est interdit ; un seul
 trois → autorisé ; trois troué (`. X X . X .`) ; trois bloqué d'un côté →
 autorisé ; double-trois au bord ; **double-trois par capture → autorisé** ;
 double-trois sur deux diagonales.
@@ -89,7 +90,7 @@ Implémentation : `Game::updateStatus` résout l'alignement de **l'adversaire en
 premier** — c'est ce qui fait gagner un alignement en sursis que le coup
 adverse n'a pas cassé.
 
-Tests à écrire — **c'est la partie la plus subtile du sujet, et celle que les
+Tests — **c'est la partie la plus subtile du sujet, et celle que les
 correcteurs sondent** : cinq cassable → partie continue ; cinq cassable non cassé → victoire au tour
 suivant ; cinq incassable → victoire immédiate ; 4 paires perdues + capture
 possible → défaite de celui qui aligne ; paire capturable **hors** de la ligne

@@ -47,28 +47,18 @@ bonus de trait dans l'éval (aucun nœud gagné), réductions de fin de liste
 
 ## À faire tout de suite
 
-- [ ] `cd ui && npm run build` — `ui/dist` est encore l'ancien bundle, celui qui
-      vide la page à la fin de partie. Les corrections de source sont faites
-      (`src/vite-env.d.ts`, `GameContext.ts`, `tsconfig.node.json`,
-      `StatusBar.tsx`) mais le bundle versionné, non. `vite build` vide `outDir`,
-      donc les assets changent de hash : diff bruyant, c'est normal.
-- [ ] ajouter `ui/*.tsbuildinfo` au `.gitignore` — deux fichiers traînent en
-      non-suivis depuis l'ajout de `tsc -b` au script de build.
+Côté interface et coque, tout est listé et priorisé dans
+[FRONT.md](FRONT.md) : chronomètre en moyenne, lancement d'une partie IA
+contre IA, Stop actif quand l'IA a le trait, `ui/dist` à reconstruire,
+`ui/*.tsbuildinfo` commités par erreur, bascule de `make app` sur
+`./Gomoku`.
 
-## Dette de documentation (introduite sciemment, à purger)
+## Documentation
 
-ADR-007 est réécrit. Restent :
-
-- **ADR-003 « Zéro dépendance C++ tierce »** ([ARCHITECTURE.md:76](ARCHITECTURE.md))
-  — faux. On a vendoré **civetweb v1.16** (MIT, un seul `.c`, tag épinglé parce
-  que `master` ne compile pas) et **nlohmann/json v3.11.3** (MIT, un header).
-  La raison du revirement : la plomberie HTTP/WS/JSON ne touche pas à l'intérêt
-  du projet, qui est l'IA. À réécrire en ADR assumé, pas à effacer.
-- **[INTEGRATION.md](INTEGRATION.md) étapes 1 à 3** — décrivent le serveur
-  HTTP/WS écrit à la main, qui n'existe plus, et un Stop « entre deux coups »
-  qui n'est plus vrai.
-- **ARCHITECTURE.md, « Le chemin critique »** : le tableau des leviers date
-  d'avant J4 ; le faisceau et les bitboards par ligne n'y sont pas.
+Remise à jour le 12 octobre : README, ARCHITECTURE (ADR-002, 003, 004, 007 et
+chemin critique mesuré), INTEGRATION (réécrit : il décrit le branchement réel
+sur civetweb au lieu d'un serveur écrit à la main), PROTOCOL, ELECTRON,
+WORKFLOW, RULES ; création de [FRONT.md](FRONT.md).
 
 ## Ce qui reste
 
@@ -97,11 +87,7 @@ réseau sont protégées et la table de transposition s'en passe, mais rien n'a
 
 ### Interface (module 4, front)
 
-- choisir humain/IA par couleur au lancement d'une partie (`players`) : sans
-  ça, l'IA contre IA reste inaccessible depuis l'UI ;
-- après `stop` en IA contre IA, rien ne relance la partie sauf `new-game` : un
-  bouton « Reprendre » demanderait une commande `resume` dans le protocole ;
-- renommer le réglage « budget (ms) » en « budget moyen (ms) ».
+Voir [FRONT.md](FRONT.md).
 
 ## Petits points connus, non urgents
 

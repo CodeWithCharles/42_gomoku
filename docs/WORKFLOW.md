@@ -86,8 +86,11 @@ plomberie.
 
 - [ ] `make fclean && make` sur une machine propre, **sans `node_modules`**
 - [ ] `make` deux fois de suite → « Nothing to be done » (pas de relink)
-- [ ] `make test` vert
-- [ ] `make bench` : profondeur ≥ 10 partout, temps moyen < 500 ms
+- [ ] `make test` vert, aussi après `make debug`
+- [ ] `make bench-games` : temps moyen < 500 ms, profondeur 10 sur l'essentiel
+      des coups non forcés (`make bench` montre les pires positions, pas la
+      moyenne que juge le sujet)
+- [ ] `make debug && make fuzz` vert, puis `make release`
 - [ ] chronomètre visible à l'écran — sans ça, projet non validé
 - [ ] `./Gomoku` seul + navigateur fonctionne, **sans Electron** (le filet)
 - [ ] une partie complète sans crash, puis une partie IA vs IA jusqu'au bout

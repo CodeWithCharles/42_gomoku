@@ -43,6 +43,8 @@ jeu en dehors de `src/core/rules.cpp`**, et `src/net/` reste générique.
 make              # compile Gomoku
 make test         # batterie de tests des règles (doit rester verte)
 make bench        # profondeur atteinte et nœuds/s
+make bench-games  # parties moteur contre moteur : temps moyen et profondeurs
+make fuzz         # fuzz du protocole WebSocket (nécessite node)
 make debug        # build ASan + UBSan
 make ui           # recompile ui/dist (nécessite node)
 make app          # construit la coque Electron (nécessite node)

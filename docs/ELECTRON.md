@@ -224,6 +224,12 @@ std::thread([&server] {
 > terminal avec `stdin` redirigé depuis `/dev/null`, `read()` rend `0`
 > immédiatement et le moteur s'arrêterait à la seconde où vous le démarrez.
 
+**Délai d'arrêt.** Sur SIGTERM, le moteur interrompt la recherche en cours et
+rejoint son thread de partie : 0,5 s sans client, **1 à 2 s** si des sockets
+WebSocket sont encore ouvertes (poignée de main de fermeture de civetweb). Le
+`SIGKILL` de secours à 2 s de `stopEngine` tombe donc parfois pendant un arrêt
+propre ; le porter à 4 s ne coûte rien.
+
 ## Canal ② — renderer ↔ moteur
 
 Rien de spécifique à Electron : c'est exactement le protocole de
@@ -317,9 +323,10 @@ app: $(NAME)
 .PHONY: all clean fclean re test bench debug ui app
 ```
 
-Tant que le moteur C++ n'existe pas, `app` dépend de `ui` et la coque est lancée
-sur `tools/mock-engine.mjs` via `npm run start:mock` — voir la section
-« Développer sans le moteur C++ » du `README.md`. La variable d'environnement
+Le moteur C++ existe, mais la bascule n'est pas faite : la cible `app` du
+`Makefile` racine dépend encore de `ui` et lance la coque sur
+`tools/mock-engine.mjs` via `npm run start:mock` (voir [FRONT.md](FRONT.md)).
+La recette ci-dessus est la cible à adopter. La variable d'environnement
 `GOMOKU_ENGINE` surcharge `enginePath()` pour pointer sur ce moteur factice ;
 les deux branches `app.isPackaged` restent intactes en dessous.
 
