@@ -78,10 +78,10 @@ ui:
 	$(call omsg,Building ui/dist)
 	$(call qcmd,cd ui && npm install && npm run build)
 
-# Ouvre la fenetre Electron sur le moteur factice.
-app: ui
+# Ouvre la fenetre Electron sur le vrai moteur.
+app: all ui
 	$(call omsg,Starting Electron shell)
-	$(call qcmd,cd app && npm install && npm run start:mock)
+	$(call qcmd,cd app && npm install && npm start)
 
 # Sert ui/dist via le moteur factice, pour un navigateur ordinaire.
 mock: ui

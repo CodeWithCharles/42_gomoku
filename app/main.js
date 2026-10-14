@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
 const { spawn } = require('node:child_process');
 const readline = require('node:readline');
 const path = require('node:path');
@@ -71,15 +71,41 @@ function stopEngine() {
     try {
       child.kill('SIGKILL');
     } catch {}
-  }, 2000).unref();
+  }, 4000).unref();
+}
+
+// Pilote la fenetre a l'origine du message : boutons de la barre de titre
+// dessinee par l'interface, la fenetre etant sans cadre.
+function handleWindowControls() {
+  const target = (e) => BrowserWindow.fromWebContents(e.sender);
+  ipcMain.on('window:minimize', (e) => target(e)?.minimize());
+  ipcMain.on('window:toggle-maximize', (e) => {
+    const win = target(e);
+    if (!win) return;
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+  });
+  ipcMain.on('window:close', (e) => target(e)?.close());
+}
+
+// Previent la page quand la fenetre change d'etat agrandi, pour l'icone du bouton.
+function forwardMaximized(win) {
+  const send = () => win.webContents.send('window:maximized', win.isMaximized());
+  win.on('maximize', send);
+  win.on('unmaximize', send);
 }
 
 app.whenReady().then(async () => {
   try {
     const port = await startEngine();
+    Menu.setApplicationMenu(null);
+    handleWindowControls();
     const win = new BrowserWindow({
-      width: 1200,
+      width: 1280,
       height: 820,
+      minWidth: 1024,
+      minHeight: 700,
+      frame: false,
       backgroundColor: '#15181d',
       webPreferences: {
         preload: path.join(__dirname, 'preload.js'),
@@ -88,7 +114,8 @@ app.whenReady().then(async () => {
         sandbox: true,
       },
     });
-    await win.loadURL(`http://127.0.0.1:${port}/`);
+    forwardMaximized(win);
+    await win.loadURL(`http://127.0.0.1:${port}/${process.env.GOMOKU_DEMO ? '?demo' : ''}`);
   } catch (err) {
     dialog.showErrorBox(
       'Gomoku',

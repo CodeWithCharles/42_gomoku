@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
-import { CELLS, type Cell, type EngineEvent, type ErrorEvent, type StateEvent } from '../protocol';
+import { CELLS, type Cell, type Color, type EngineEvent, type ErrorEvent, type StateEvent } from '../protocol';
 import { useEngine } from '../useEngine';
 import { onEngineDied } from '../shell';
-import { GameContext, type GameValue } from './GameContext';
+import { GameContext, type GameValue, type Suggestion } from './GameContext';
 import { SearchContext, type SearchValue } from './SearchContext';
 import { useEffect } from 'react';
 
@@ -18,6 +18,8 @@ const EMPTY_GAME: GameState = {
   config: { captures: true, doubleThree: true, endgameCapture: true, opening: 'standard' },
   limits: { maxDepth: 10, budgetMs: 450, maxCandidates: 20 },
   history: [],
+  limitsSync: 0,
+  suggestion: null,
 };
 
 const IDLE_SEARCH: SearchValue = {
@@ -31,13 +33,27 @@ const IDLE_SEARCH: SearchValue = {
   ttHits: 0,
   elapsedMs: 0,
   pv: [],
+  pvFirst: 'black',
   rootScores: [],
   startedAt: null,
   lastMoveMs: 0,
+  aiMoves: 0,
+  aiTotalMs: 0,
 };
 
-// Extrait la partie « etat de partie » d'un evenement state.
-function toGameState(msg: StateEvent): GameState {
+// Garde le coup propose par le dernier suggest jusqu'a ce que le plateau change ;
+// un simple changement de reglages ne l'efface pas.
+function suggestionAfterState(prev: Suggestion | null, msg: StateEvent): Suggestion | null {
+  if (msg.event === 'suggestion') {
+    return msg.lastStats.best >= 0 ? { idx: msg.lastStats.best, score: msg.lastStats.score } : null;
+  }
+  if (msg.event === 'limits' || msg.event === 'weights') return prev;
+  return null;
+}
+
+// Extrait la partie « etat de partie » d'un evenement state ; limitsSync avance
+// quand le moteur annonce ses limites, pour resynchroniser les reglages.
+function toGameState(prev: GameState, msg: StateEvent): GameState {
   return {
     board: msg.board,
     toMove: msg.toMove,
@@ -48,6 +64,25 @@ function toGameState(msg: StateEvent): GameState {
     config: msg.config,
     limits: msg.limits,
     history: msg.history,
+    limitsSync: msg.event === 'limits' || msg.event === 'connected' ? prev.limitsSync + 1 : prev.limitsSync,
+    suggestion: suggestionAfterState(prev.suggestion, msg),
+  };
+}
+
+// Met a jour les temps de recherche apres un state : duree mesuree par le
+// moteur pour le dernier coup, cumul des coups IA remis a zero en debut de partie.
+function timeAfterState(prev: SearchValue, msg: StateEvent): SearchValue {
+  const fresh = msg.event === 'new_game' || msg.event === 'connected';
+  const searched = msg.event === 'ai_move' || msg.event === 'suggestion';
+  const aiMoves = fresh ? 0 : prev.aiMoves;
+  const aiTotalMs = fresh ? 0 : prev.aiTotalMs;
+  return {
+    ...prev,
+    searching: false,
+    startedAt: null,
+    lastMoveMs: fresh ? 0 : searched ? msg.lastStats.elapsedMs : prev.lastMoveMs,
+    aiMoves: msg.event === 'ai_move' ? aiMoves + 1 : aiMoves,
+    aiTotalMs: msg.event === 'ai_move' ? aiTotalMs + msg.lastStats.elapsedMs : aiTotalMs,
   };
 }
 
@@ -59,18 +94,15 @@ export function EngineProvider({ children }: { children: ReactNode }) {
   const [lastError, setLastError] = useState<ErrorEvent | null>(null);
   const [engineDied, setEngineDied] = useState(false);
   const searchingRef = useRef(false);
+  const toMoveRef = useRef<Color>('black');
 
   const handleEvent = useCallback((event: EngineEvent) => {
     if (event.type === 'state') {
       searchingRef.current = false;
-      setGame(toGameState(event));
+      toMoveRef.current = event.toMove;
+      setGame((prev) => toGameState(prev, event));
       setLastError(null);
-      setSearch((prev) => ({
-        ...prev,
-        searching: false,
-        lastMoveMs: prev.startedAt === null ? prev.lastMoveMs : Date.now() - prev.startedAt,
-        startedAt: null,
-      }));
+      setSearch((prev) => timeAfterState(prev, event));
       return;
     }
     if (event.type === 'progress') {
@@ -87,9 +119,12 @@ export function EngineProvider({ children }: { children: ReactNode }) {
         ttHits: event.ttHits,
         elapsedMs: event.elapsedMs,
         pv: event.pv,
+        pvFirst: started ? prev.pvFirst : toMoveRef.current,
         rootScores: event.rootScores,
         startedAt: started && prev.startedAt !== null ? prev.startedAt : Date.now() - event.elapsedMs,
         lastMoveMs: prev.lastMoveMs,
+        aiMoves: prev.aiMoves,
+        aiTotalMs: prev.aiTotalMs,
       }));
       return;
     }

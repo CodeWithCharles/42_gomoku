@@ -1,28 +1,125 @@
-.layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 16px;
+.app {
+  position: relative;
+  width: 100%;
   height: 100%;
-  padding: 16px;
-}
-
-.layout-board {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-}
-
-.layout-side {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  overflow-y: auto;
+  background: var(--bg);
+  overflow: hidden;
 }
 
-@media (max-width: 900px) {
+.layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  gap: var(--gap);
+  padding: var(--gap);
+  grid-template-columns: minmax(0, 1fr) var(--col-side);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "board side";
+}
+
+.side {
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.side > .clock {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  flex: none;
+}
+
+.tabs {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.tab {
+  min-height: 34px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--dur-fast);
+}
+
+.tab[aria-selected="true"] {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.tab-group {
+  display: contents;
+}
+
+.tab-off {
+  display: none;
+}
+
+@media (min-width: 1280px) {
   .layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto;
+    grid-template-columns: var(--col-left) minmax(0, 1fr) var(--col-right);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-areas:
+      "status board lab"
+      "clock board lab"
+      "controls board lab"
+      "history board lab";
+  }
+
+  .side {
+    display: contents;
+  }
+
+  .tabs {
+    display: none;
+  }
+
+  .tab-off {
+    display: contents;
+  }
+
+  .status {
+    grid-area: status;
+  }
+
+  .clock {
+    grid-area: clock;
+  }
+
+  .side > .clock {
+    position: static;
+  }
+
+  .controls {
+    grid-area: controls;
+  }
+
+  .history {
+    grid-area: history;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .lab {
+    grid-area: lab;
+    min-height: 0;
+    overflow-y: auto;
   }
 }

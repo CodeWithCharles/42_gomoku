@@ -1,61 +1,181 @@
+.board-col {
+  grid-area: board;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  container-type: size;
+  display: grid;
+  place-items: center;
+}
+
 .goban {
-  width: min(100%, 78vh);
-  height: auto;
-  aspect-ratio: 1;
-  border-radius: var(--radius);
+  display: block;
+  width: min(100cqw,100cqh);
+  height: min(100cqw,100cqh);
+  filter: drop-shadow(0 0 36px var(--board-glow)) drop-shadow(0 14px 24px var(--board-shadow));
 }
 
-.goban-bg {
-  fill: var(--board);
+.board-halo {
+  fill: var(--board-halo);
 }
 
-.goban-line {
-  stroke: var(--line);
-  stroke-width: 0.03;
-}
-
-.goban-star {
-  fill: var(--line);
-}
-
-.goban-stone {
-  stroke-width: 0.03;
-}
-
-.goban-black {
-  fill: var(--stone-black);
-  stroke: #000;
-}
-
-.goban-white {
-  fill: var(--stone-white);
-  stroke: #b9c0ca;
-}
-
-.goban-last {
-  fill: var(--accent);
-}
-
-.goban-hit {
-  fill: transparent;
-  cursor: pointer;
-}
-
-.goban-hit:hover {
-  fill: var(--accent);
-  fill-opacity: 0.25;
-}
-
-.goban-heat {
-  fill: var(--accent);
-}
-
-.goban-pv {
-  fill: var(--ok);
-}
-
-.goban-best {
+.board-border {
   fill: none;
-  stroke: var(--ok);
-  stroke-width: 0.06;
+  stroke: var(--board-border);
+  stroke-width: 2;
+}
+
+.gl {
+  stroke: var(--grid-line);
+  stroke-width: 1.4;
+}
+
+.gl-edge {
+  stroke: var(--grid-edge);
+  stroke-width: 2;
+}
+
+.hoshi {
+  fill: var(--hoshi);
+}
+
+.stone-b-rim {
+  fill: none;
+  stroke: var(--stone-b-rim);
+  stroke-width: 1.6;
+}
+
+.coord {
+  fill: var(--coord);
+  font-family: var(--font-mono);
+  font-size: 21px;
+  font-weight: 600;
+  text-anchor: middle;
+  dominant-baseline: central;
+  user-select: none;
+}
+
+.shadow {
+  fill: var(--stone-shadow);
+}
+
+.stone {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: stone-in var(--dur) cubic-bezier(.2,.8,.3,1);
+}
+
+.stone-out {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: stone-out var(--dur-slow) ease-in forwards;
+}
+
+.stone-w-edge {
+  fill: none;
+  stroke: var(--stone-w-edge);
+  stroke-width: .8;
+}
+
+.heat {
+  fill: var(--accent-board);
+}
+
+.pv-dot {
+  fill: var(--accent-board);
+  stroke: var(--pv-ring);
+  stroke-width: 2;
+}
+
+.best-halo {
+  fill: none;
+  stroke: var(--accent-board);
+  stroke-width: 10;
+  opacity: .25;
+}
+
+.best-ring {
+  fill: none;
+  stroke: var(--accent-board);
+  stroke-width: 3;
+}
+
+.ghost {
+  opacity: .5;
+}
+
+.sugg-ring {
+  fill: none;
+  stroke: var(--accent-board);
+  stroke-width: 3.5;
+  stroke-dasharray: 7 5;
+}
+
+.sugg-box {
+  fill: var(--tip-bg);
+}
+
+.sugg-text {
+  fill: var(--tip-text);
+  font-family: var(--font-mono);
+  font-size: 19px;
+  font-weight: 600;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.num-b {
+  fill: var(--num-on-b);
+}
+
+.num-w {
+  fill: var(--num-on-w);
+}
+
+.num-sm {
+  font-size: 19px;
+}
+
+.num-xs {
+  font-size: 15px;
+}
+
+.last-dot.last-b {
+  fill: var(--num-on-b);
+}
+
+.last-dot.last-w {
+  fill: var(--num-on-w);
+}
+
+.last-ring {
+  fill: none;
+  stroke-width: 2.2;
+}
+
+.last-ring.last-b {
+  stroke: var(--num-on-b);
+}
+
+.last-ring.last-w {
+  stroke: var(--num-on-w);
+}
+
+.no-hit {
+  pointer-events: none;
+}
+
+.hit {
+  fill: transparent;
+}
+
+.hit-play {
+  cursor: pointer;
 }

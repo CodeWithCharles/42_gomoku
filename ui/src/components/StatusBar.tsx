@@ -1,46 +1,86 @@
 import { useGame } from '../engine/GameContext';
-import { winReasonLabel } from '../protocol';
+import { winReasonLabel, type Color, type ErrorCode, type PlayerKind } from '../protocol';
 import './StatusBar.css';
 
-const STATUS_LABEL: Record<string, string> = {
-  ongoing: 'partie en cours',
-  black_wins: 'les noirs gagnent',
-  white_wins: 'les blancs gagnent',
-  draw: 'partie nulle',
+const PAIRS_TO_WIN = 5;
+
+const ERRORS: Record<ErrorCode, string> = {
+  legal: 'Coup légal.',
+  out_of_bounds: 'Coup hors du plateau.',
+  occupied: 'Intersection déjà occupée.',
+  double_three: 'Coup interdit par la règle du double-trois.',
+  game_over: 'La partie est terminée.',
+  not_your_turn: "Ce n'est pas votre tour.",
+  unknown: 'Erreur inconnue du moteur.',
 };
 
-// Bandeau d'etat : connexion, trait, captures, statut et derniere erreur.
+const PLAYER_LABEL: Record<PlayerKind, string> = { human: 'humain', ai: 'IA' };
+
+const SIDE_LABEL: Record<Color, string> = { black: 'noirs', white: 'blancs' };
+
+// Libelle et pastille de l'etat de connexion au moteur.
+function connectionView(connection: string, engineDied: boolean): { text: string; dot: string } {
+  if (engineDied) return { text: 'moteur arrêté', dot: 'dot dot-bad' };
+  if (connection === 'open') return { text: 'moteur connecté', dot: 'dot dot-ok' };
+  if (connection === 'connecting') return { text: 'connexion...', dot: 'dot dot-wait' };
+  return { text: 'déconnecté, nouvelle tentative', dot: 'dot dot-bad' };
+}
+
+// Ligne de paires capturees d'une couleur, avec sa jauge en cinq segments.
+function PairsRow({ color, pairs }: { color: Color; pairs: number }) {
+  return (
+    <div className="pairs-row">
+      <span className={color === 'black' ? 'mini-stone ms-b' : 'mini-stone ms-w'} />
+      <span>{SIDE_LABEL[color]}</span>
+      <span className="segs">
+        {Array.from({ length: PAIRS_TO_WIN }, (_, k) => (
+          <span key={k} className={k < pairs ? (pairs >= PAIRS_TO_WIN ? 'seg seg-win' : 'seg seg-on') : 'seg'} />
+        ))}
+      </span>
+      <span className="pairs-count mono">
+        {pairs} / {PAIRS_TO_WIN}
+      </span>
+    </div>
+  );
+}
+
+// Panneau d'etat : connexion, trait ou resultat, paires capturees, derniere erreur.
 export function StatusBar() {
   const { connection, engineDied, toMove, players, status, winReason, pairs, lastError } = useGame();
+  const conn = connectionView(connection, engineDied);
+  const winner: Color | null = status === 'black_wins' ? 'black' : status === 'white_wins' ? 'white' : null;
 
   return (
-    <header className="status">
-      <div className="status-line">
-        <span className={`status-dot status-${connection}`} />
-        <span>
-          {engineDied
-            ? 'moteur arrete'
-            : connection === 'open'
-              ? 'moteur connecte'
-              : connection === 'connecting'
-                ? 'connexion...'
-                : 'deconnecte, nouvelle tentative'}
-        </span>
+    <section className="panel status" aria-label="État de la partie">
+      <h2 className="panel-title">Partie</h2>
+      <div className="conn">
+        <span className={conn.dot} />
+        <span>{conn.text}</span>
       </div>
-      <div className="status-line">
-        <span className={toMove === 'black' ? 'status-stone status-black' : 'status-stone status-white'} />
-        <span>
-          {STATUS_LABEL[status]}
-          {status === 'ongoing' && ` - ${toMove === 'black' ? 'noirs' : 'blancs'} (${players[toMove]})`}
-          {winReason && ` - ${winReasonLabel(winReason)}`}
-        </span>
+      {status === 'ongoing' ? (
+        <div className="turn">
+          <span className={toMove === 'black' ? 'mini-stone ms-b' : 'mini-stone ms-w'} />
+          <span>
+            partie en cours - {SIDE_LABEL[toMove]} ({PLAYER_LABEL[players[toMove]]})
+          </span>
+        </div>
+      ) : (
+        <div className="turn">
+          <span className={winner === 'black' ? 'mini-stone ms-b' : winner === 'white' ? 'mini-stone ms-w' : 'mini-stone ms-none'} />
+          <span>{winner ? `les ${SIDE_LABEL[winner]} gagnent` : 'partie nulle'}</span>
+          {winReason && <span className="turn-reason">- {winReasonLabel(winReason)}</span>}
+        </div>
+      )}
+      <div className="pairs" aria-label="Paires capturées">
+        <PairsRow color="black" pairs={pairs.black} />
+        <PairsRow color="white" pairs={pairs.white} />
       </div>
-      <div className="status-line">
-        <span>
-          paires capturees : noirs {pairs.black} / blancs {pairs.white}
-        </span>
-      </div>
-      {lastError && <p className="status-error">{lastError.code} : {lastError.message}</p>}
-    </header>
+      {lastError && (
+        <div className="error" role="alert">
+          <span className="error-code">{lastError.code}</span>
+          <span>{ERRORS[lastError.code] ?? ERRORS.unknown}</span>
+        </div>
+      )}
+    </section>
   );
 }

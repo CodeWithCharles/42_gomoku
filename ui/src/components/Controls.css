@@ -1,27 +1,31 @@
-.controls {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius);
-  padding: 10px 12px;
+.players {
+  display: grid;
+  gap: 6px;
 }
 
-.controls-row {
-  display: flex;
-  flex-wrap: wrap;
+.player-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0,1fr);
+  align-items: center;
   gap: 8px;
+  font-size: var(--fs-md);
+  color: var(--text-2);
 }
 
-.controls-limits {
-  align-items: flex-end;
-}
-
-.controls-limits label {
+.player-name {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
-  color: var(--text-dim);
-  font-size: 11px;
+  align-items: center;
+  gap: 7px;
+}
+
+.draft-note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 6px;
 }

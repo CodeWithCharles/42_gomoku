@@ -33,7 +33,7 @@ classique est de tout faire passer par l'IPC d'Electron.
 |---|---|---|---|
 | **①** | main ↔ moteur | `node:child_process` + stdout | démarrage, découverte du port, mort du process |
 | **②** | renderer ↔ moteur | `WebSocket` | **tout le jeu** — coups, état, progression de la recherche |
-| **③** | main ↔ renderer | `contextBridge` + `ipcRenderer` | uniquement ce que l'URL ne dit pas : « le moteur est mort » |
+| **③** | main ↔ renderer | `contextBridge` + `ipcRenderer` | uniquement ce que l'URL ne dit pas : « le moteur est mort », et les boutons de la fenêtre sans cadre |
 
 **Le trafic de jeu ne passe jamais par Electron.** Le renderer parle
 directement au moteur, exactement comme un navigateur ordinaire. C'est
@@ -257,7 +257,12 @@ au démarrage, pas à l'écriture du code.
 ## Canal ③ — main ↔ renderer
 
 Volontairement minuscule. Le port est déjà dans `window.location`, donc l'IPC
-ne sert qu'à ce que l'URL ne peut pas exprimer : la mort du moteur.
+ne sert qu'à ce que l'URL ne peut pas exprimer : la mort du moteur, et le
+pilotage de la fenêtre. Celle-ci est sans cadre (`frame: false`, menu retiré) :
+l'interface dessine sa propre barre de titre et appelle `minimize`,
+`toggleMaximize` et `close` ; `onMaximizedChange` lui signale l'état agrandi
+et renvoie de quoi se désabonner.
+En navigateur, `window.gomokuShell` est absent et la barre n'est pas affichée.
 
 ```js
 // app/preload.js
@@ -265,6 +270,14 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('gomokuShell', {
   onEngineDied: (cb) => ipcRenderer.on('engine:died', (_e, info) => cb(info)),
+  minimize: () => ipcRenderer.send('window:minimize'),
+  toggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),
+  close: () => ipcRenderer.send('window:close'),
+  onMaximizedChange: (cb) => {
+    const listener = (_e, maximized) => cb(maximized);
+    ipcRenderer.on('window:maximized', listener);
+    return () => ipcRenderer.removeListener('window:maximized', listener);
+  },
 });
 ```
 
