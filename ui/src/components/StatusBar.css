@@ -1,51 +1,102 @@
-.status {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-}
-
-.status-line {
+.conn {
   display: flex;
   align-items: center;
   gap: 8px;
+  font-size: var(--fs-md);
+  color: var(--text-2);
 }
 
-.status-dot {
+.dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--danger);
+  flex: none;
 }
 
-.status-open {
+.dot-ok {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+.dot-wait {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.dot-bad {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.turn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text);
+  min-height: 22px;
+}
+
+.turn-reason {
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.pairs {
+  display: grid;
+  gap: 7px;
+}
+
+.pairs-row {
+  display: grid;
+  grid-template-columns: 14px 52px minmax(0,1fr) 40px;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.pairs-count {
+  text-align: right;
+  color: var(--text);
+}
+
+.segs {
+  display: grid;
+  grid-template-columns: repeat(5,minmax(0,1fr));
+  gap: 3px;
+}
+
+.seg {
+  height: 6px;
+  border-radius: 2px;
+  background: var(--surface-3);
+}
+
+.seg-on {
+  background: var(--text-2);
+}
+
+.seg-win {
   background: var(--ok);
 }
 
-.status-connecting {
-  background: var(--accent);
-}
-
-.status-stone {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 1px solid var(--line);
-}
-
-.status-black {
-  background: var(--stone-black);
-}
-
-.status-white {
-  background: var(--stone-white);
-}
-
-.status-error {
-  margin: 0;
+.error {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--danger-soft);
   color: var(--danger);
-  font-family: var(--mono);
+  font-size: var(--fs-md);
+  animation: fade-in var(--dur) ease-out;
+}
+
+.error-code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 700;
 }

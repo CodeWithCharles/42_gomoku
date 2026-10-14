@@ -2,6 +2,11 @@ import { createContext, useContext } from 'react';
 import type { Cell, Color, Command, Config, ErrorEvent, HistoryEntry, Limits, Pairs, Players, Status, WinReason } from '../protocol';
 import type { ConnectionState } from '../useEngine';
 
+export interface Suggestion {
+  idx: number;
+  score: number;
+}
+
 export interface GameValue {
   board: Cell[];
   toMove: Color;
@@ -12,6 +17,8 @@ export interface GameValue {
   config: Config;
   limits: Limits;
   history: HistoryEntry[];
+  limitsSync: number;
+  suggestion: Suggestion | null;
   lastError: ErrorEvent | null;
   connection: ConnectionState;
   engineDied: boolean;

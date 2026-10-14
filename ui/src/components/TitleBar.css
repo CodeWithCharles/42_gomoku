@@ -1,0 +1,82 @@
+.titlebar {
+  flex: none;
+  height: var(--titlebar-h);
+  display: flex;
+  align-items: stretch;
+  background: var(--titlebar-bg);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.tb-drag {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  -webkit-app-region: drag;
+}
+
+.tb-logo {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.tb-logo-b {
+  fill: var(--stone-b-2);
+}
+
+.tb-logo-w {
+  fill: var(--stone-w-2);
+}
+
+.tb-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--text-2);
+}
+
+.tb-btns {
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+
+.tb-btn {
+  width: 46px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  cursor: default;
+  transition: background-color var(--dur-fast),color var(--dur-fast);
+}
+
+.tb-btn svg {
+  width: 10px;
+  height: 10px;
+}
+
+.tb-ico {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+}
+
+.tb-btn:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.tb-close:hover {
+  background: var(--danger-strong);
+  color: var(--on-danger);
+}
+
+.tb-btn:focus-visible {
+  outline-offset: -2px;
+}

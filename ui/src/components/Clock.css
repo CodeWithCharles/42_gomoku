@@ -1,47 +1,93 @@
 .clock {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 4px 10px;
-  align-items: baseline;
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-}
-
-.clock-label {
-  color: var(--text-dim);
-  text-transform: uppercase;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-}
-
-.clock-value {
-  font-family: var(--mono);
-  font-size: 30px;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  gap: 8px;
 }
 
 .clock-over {
+  border-color: var(--danger);
+}
+
+.clock-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.clock-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--ok);
+}
+
+.clock-value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-clock);
+  line-height: 1;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+  color: var(--text);
+}
+
+.clock-unit {
+  font-size: var(--fs-lg);
+  color: var(--text-3);
+  margin-left: 6px;
+  letter-spacing: 0;
+}
+
+.clock-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.avg {
+  font-family: var(--font-mono);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.avg-over {
   color: var(--danger);
 }
 
-.clock-budget {
-  grid-column: 1 / -1;
-  color: var(--text-dim);
-  font-size: 11px;
+.gauge {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-3);
 }
 
-.clock-gauge {
-  grid-column: 1 / -1;
-  height: 4px;
-  background: var(--bg);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.clock-fill {
+.gauge-fill {
   height: 100%;
-  background: var(--accent);
+  border-radius: 3px;
+  background: var(--text-2);
+  transition: width var(--dur);
+}
+
+.gauge-over {
+  background: var(--danger);
+}
+
+.gauge-mark {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: 66.667%;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--text);
+}
+
+.clock-foot {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
 }

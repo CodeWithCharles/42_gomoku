@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { RootScore } from '../protocol';
+import type { Color, RootScore } from '../protocol';
 
 export interface SearchValue {
   searching: boolean;
@@ -12,9 +12,12 @@ export interface SearchValue {
   ttHits: number;
   elapsedMs: number;
   pv: number[];
+  pvFirst: Color;
   rootScores: RootScore[];
   startedAt: number | null;
   lastMoveMs: number;
+  aiMoves: number;
+  aiTotalMs: number;
 }
 
 export const SearchContext = createContext<SearchValue | null>(null);

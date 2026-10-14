@@ -1,64 +1,78 @@
-:root {
-  --bg: #15181d;
-  --panel: #1c2027;
-  --panel-border: #2b313a;
-  --text: #e6e9ee;
-  --text-dim: #8b94a3;
-  --accent: #6ea8fe;
-  --danger: #f2777a;
-  --ok: #7ec699;
-  --board: #2a2f38;
-  --line: #4a5361;
-  --stone-black: #0d0f12;
-  --stone-white: #edf0f4;
-  --radius: 6px;
-  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: ui-monospace, "JetBrains Mono", "Cascadia Code", monospace;
-}
+:root{
+  --bg: oklch(0.165 0.012 250);
+  --surface: oklch(0.2 0.013 250);
+  --surface-2: oklch(0.225 0.014 250);
+  --surface-3: oklch(0.285 0.016 250);
+  --row-alt: oklch(0.215 0.013 250);
+  --border: oklch(0.3 0.015 250);
+  --border-strong: oklch(0.38 0.016 250);
+  --text: oklch(0.94 0.006 250);
+  --text-2: oklch(0.8 0.01 250);
+  --text-3: oklch(0.68 0.012 250);
+  --focus: oklch(0.94 0.006 250);
+  --accent: oklch(0.8 0.12 225);
+  --accent-soft: oklch(0.8 0.12 225 / 0.14);
+  --accent-line: oklch(0.8 0.12 225 / 0.5);
+  --accent-board: oklch(0.8 0.12 225);
+  --ok: oklch(0.79 0.15 152);
+  --ok-soft: oklch(0.79 0.15 152 / 0.15);
+  --danger: oklch(0.72 0.17 27);
+  --danger-soft: oklch(0.72 0.17 27 / 0.14);
+  --danger-strong: oklch(0.56 0.21 27);
+  --on-danger: oklch(0.99 0 0);
+  --titlebar-bg: oklch(0.135 0.011 250);
+  --banner-bg: oklch(0.21 0.014 250 / 0.97);
+  --shadow: 0 18px 50px oklch(0 0 0 / 0.5);
+  --demo-bg: oklch(0.19 0.03 300 / 0.97);
+  --demo-border: oklch(0.68 0.12 300 / 0.7);
+  --demo-text: oklch(0.84 0.06 300);
 
-* {
-  box-sizing: border-box;
-}
+  --board-1: oklch(0.235 0.03 245);
+  --board-2: oklch(0.175 0.02 250);
+  --board-halo: oklch(0.62 0.13 230 / 0.32);
+  --board-border: oklch(0.8 0.12 225 / 0.35);
+  --board-glow: oklch(0.62 0.13 230 / 0.22);
+  --board-shadow: oklch(0 0 0 / 0.5);
+  --grid-line: oklch(0.7 0.06 230 / 0.32);
+  --grid-edge: oklch(0.78 0.08 228 / 0.55);
+  --hoshi: oklch(0.8 0.1 226 / 0.8);
+  --coord: oklch(0.7 0.04 238);
+  --stone-b-1: oklch(0.4 0.03 248);
+  --stone-b-2: oklch(0.22 0.02 250);
+  --stone-b-3: oklch(0.13 0.015 252);
+  --stone-b-rim: oklch(0.72 0.1 228 / 0.55);
+  --stone-w-1: oklch(0.99 0.005 230);
+  --stone-w-2: oklch(0.93 0.02 232);
+  --stone-w-3: oklch(0.8 0.04 236);
+  --stone-w-edge: oklch(0.85 0.06 230 / 0.9);
+  --stone-nacre: oklch(1 0 0 / 0.22);
+  --stone-nacre-clear: oklch(1 0 0 / 0);
+  --stone-shadow: oklch(0.65 0.13 230 / 0.35);
+  --num-on-b: oklch(0.96 0.01 230);
+  --num-on-w: oklch(0.2 0.03 250);
+  --pv-ring: oklch(0.17 0.02 250);
+  --tip-bg: oklch(0.17 0.012 250 / 0.94);
+  --tip-text: oklch(0.94 0.006 250);
 
-html,
-body,
-#root {
-  height: 100%;
-  margin: 0;
-}
-
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font);
-  font-size: 14px;
-}
-
-button {
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius);
-  padding: 6px 12px;
-  font: inherit;
-  cursor: pointer;
-}
-
-button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
-button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-input {
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius);
-  padding: 4px 6px;
-  font: inherit;
-  width: 5.5rem;
+  --font-ui: system-ui, -apple-system, "Segoe UI", "Noto Sans", "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 20px;
+  --fs-clock: 44px;
+  --fs-depth: 60px;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --gap: 12px;
+  --pad: 14px;
+  --titlebar-h: 34px;
+  --col-left: 288px;
+  --col-right: 316px;
+  --col-side: 340px;
+  --dur-fast: 150ms;
+  --dur: 200ms;
+  --dur-slow: 250ms;
 }
