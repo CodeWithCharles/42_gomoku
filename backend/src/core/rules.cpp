@@ -85,7 +85,9 @@ bool axisHasFreeThree(Board& b, Idx i, int axis, Player p) {
 	return false;
 }
 
-// True if `foe` can capture, in one move, a pair of `victim` holding `s`.
+// True if `foe` can capture, in one move, a pair of `victim` holding `s`. The
+// pair is flanked by `foe` on one side and empty on the other, either way
+// round: the partner of `s` may lie outside the line being tested.
 bool pairAroundIsCapturable(const Board& b, Idx s, Player victim, Player foe) {
 	const int sx = xOf(s);
 	const int sy = yOf(s);
@@ -93,13 +95,14 @@ bool pairAroundIsCapturable(const Board& b, Idx s, Player victim, Player foe) {
 		if (!cellIs(b, sx + d.dx, sy + d.dy, victim)) {
 			continue;
 		}
-		if (!cellIs(b, sx - d.dx, sy - d.dy, foe)) {
-			continue;
+		const int beforeX = sx - d.dx;
+		const int beforeY = sy - d.dy;
+		const int afterX = sx + 2 * d.dx;
+		const int afterY = sy + 2 * d.dy;
+		if ((cellIs(b, beforeX, beforeY, foe) && cellEmpty(b, afterX, afterY)) ||
+			(cellEmpty(b, beforeX, beforeY) && cellIs(b, afterX, afterY, foe))) {
+			return true;
 		}
-		if (!cellEmpty(b, sx + 2 * d.dx, sy + 2 * d.dy)) {
-			continue;
-		}
-		return true;
 	}
 	return false;
 }

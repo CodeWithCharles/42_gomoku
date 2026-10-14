@@ -284,6 +284,7 @@ function maybeAiMove() {
       push(stateEvent(game, 'move'));
       return;
     }
+    sleep(5);
     place(best, color);
     push(stateEvent(game, 'ai_move'));
     maybeAiMove();
