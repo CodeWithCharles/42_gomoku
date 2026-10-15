@@ -8,7 +8,7 @@ import './GameOverBanner.css';
 // l'interface. Fermee par "Voir le plateau", elle revient a la fin suivante.
 export function GameOverBanner() {
   const { status, winReason, history, pairs, connection, engineDied, send } = useGame();
-  const { seats } = useView();
+  const { seats, rules } = useView();
   const [closedFor, setClosedFor] = useState<string | null>(null);
   const ending = `${status}-${history.length}`;
 
@@ -49,7 +49,7 @@ export function GameOverBanner() {
             type="button"
             title="Nouvelle partie (raccourci N)"
             disabled={offline}
-            onClick={() => send({ type: 'new-game', players: seats })}
+            onClick={() => send({ type: 'new-game', players: seats, config: rules })}
           >
             <span>Nouvelle partie</span>
             <kbd>N</kbd>

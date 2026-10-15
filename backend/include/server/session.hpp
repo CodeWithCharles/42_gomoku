@@ -76,6 +76,7 @@ class Session {
 	void play(net::ClientId client, const std::string& body);
 	void suggest(net::ClientId client);
 	void undo(net::ClientId client);
+	void chooseColour(net::ClientId client, const std::string& body);
 	void setLimits(net::ClientId client, const std::string& body);
 	void setWeights(net::ClientId client, const std::string& body);
 
@@ -83,7 +84,10 @@ class Session {
 	// next one, so AI versus AI works too.
 	void scheduleAiTurn(net::ClientId client);
 	void aiTurn(net::ClientId client);
-	SearchResult think(net::ClientId client);
+	void aiChoose(net::ClientId client);
+	SearchResult think(net::ClientId client, Game& game);
+	Game freePlayCopy() const;
+	void syncSeats();
 
 	void pushState(net::ClientId client, const char* event);
 	void pushError(net::ClientId client, const std::string& message, const char* code);
@@ -97,6 +101,7 @@ class Session {
 	SearchStats lastStats_;
 	TimeBank bank_;
 	bool aiPending_ = false;
+	bool seatsSwapped_ = false;
 	std::atomic<bool> halted_{false};
 
 	std::mutex queueMutex_;

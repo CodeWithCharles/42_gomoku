@@ -1,4 +1,4 @@
-import type { Color, PlayerKind } from '../protocol';
+import { openingLabel, type Color, type Config, type OpeningOption, type OpeningRule, type PlayerKind } from '../protocol';
 import { useGame } from '../engine/GameContext';
 import { useSearch } from '../engine/SearchContext';
 import { useView } from '../view/ViewContext';
@@ -21,6 +21,79 @@ function SeatPicker({ color, value, onChange }: { color: Color; value: PlayerKin
         <button className="seg-btn" type="button" aria-pressed={value === 'ai'} onClick={() => onChange('ai')}>
           IA
         </button>
+      </div>
+    </div>
+  );
+}
+
+const OPENINGS: OpeningRule[] = ['standard', 'pro', 'longpro', 'swap', 'swap2'];
+
+const OPENING_HINT: Record<OpeningRule, string> = {
+  standard: 'Noir commence, sans contrainte.',
+  pro: 'Noir ouvre au centre ; sa 2e pierre à 3 intersections au moins.',
+  longpro: 'Noir ouvre au centre ; sa 2e pierre à 4 intersections au moins.',
+  swap: 'Noir pose 3 pierres, Blanc choisit sa couleur.',
+  swap2: 'Noir pose 3 pierres ; Blanc choisit sa couleur ou en pose 2 de plus.',
+};
+
+const OPTION_LABEL: Record<OpeningOption, string> = {
+  black: 'Jouer Noir',
+  white: 'Jouer Blanc',
+  place2: 'Poser 2 pierres',
+};
+
+// Regles de la prochaine partie : ouverture et regles du sujet desactivables.
+function RulesPicker({ rules, onChange }: { rules: Config; onChange: (rules: Config) => void }) {
+  const toggles: { key: 'captures' | 'doubleThree' | 'endgameCapture'; label: string }[] = [
+    { key: 'captures', label: 'Captures' },
+    { key: 'doubleThree', label: 'Double-trois interdit' },
+    { key: 'endgameCapture', label: 'Capture en fin de partie' },
+  ];
+  return (
+    <div className="rules">
+      <label className="field rules-opening" htmlFor="rules-opening">
+        Ouverture
+        <select
+          id="rules-opening"
+          value={rules.opening}
+          onChange={(e) => onChange({ ...rules, opening: e.target.value as OpeningRule })}
+        >
+          {OPENINGS.map((rule) => (
+            <option key={rule} value={rule}>{openingLabel(rule)}</option>
+          ))}
+        </select>
+      </label>
+      <p className="rules-hint">{OPENING_HINT[rules.opening]}</p>
+      {toggles.map(({ key, label }) => (
+        <label key={key} className="switch rules-switch">
+          <input
+            id={`rules-${key}`}
+            type="checkbox"
+            checked={rules[key]}
+            disabled={key === 'endgameCapture' && !rules.captures}
+            onChange={() => onChange({ ...rules, [key]: !rules[key] })}
+          />
+          {label}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+// Choix de couleur demande par Swap et Swap2, quand il revient a un humain.
+function OpeningChoice({ actor, options, onChoose }: { actor: Color; options: OpeningOption[]; onChoose: (option: OpeningOption) => void }) {
+  return (
+    <div className="opening-choice" role="group" aria-label="Choix de couleur">
+      <p>
+        <span className={actor === 'black' ? 'mini-stone ms-b' : 'mini-stone ms-w'} />
+        {actor === 'black' ? 'Le joueur Noir' : 'Le joueur Blanc'} choisit sa couleur.
+      </p>
+      <div className="opening-buttons">
+        {options.map((option) => (
+          <button key={option} className="btn" type="button" onClick={() => onChoose(option)}>
+            {OPTION_LABEL[option]}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -49,20 +122,22 @@ function ActionButton({ label, shortcut, title, primary, disabled, onClick }: {
   );
 }
 
-// Choix des joueurs et boutons de partie, avec leurs raccourcis clavier :
-// N, U, H, Echap, et M pour les numeros de coups.
+// Choix des joueurs, boutons de partie et regles, avec leurs raccourcis
+// clavier : N, U, H, Echap, et M pour les numeros de coups.
 export function Controls() {
-  const { send, history, status, toMove, players, connection, engineDied } = useGame();
+  const { send, history, status, players, opening, connection, engineDied } = useGame();
   const { searching } = useSearch();
-  const { toggleMoveNumbers, seats, setSeats } = useView();
+  const { toggleMoveNumbers, seats, setSeats, rules, setRules } = useView();
   const offline = connection !== 'open' || engineDied;
-  const aiToMove = status === 'ongoing' && players[toMove] === 'ai';
+  const aiToMove = status === 'ongoing' && players[opening.actor] === 'ai';
+  const humanChoice = !offline && status === 'ongoing' && opening.step === 'choose' && players[opening.actor] === 'human';
   const aiOnly = players.black === 'ai' && players.white === 'ai';
   const canUndo = !offline && !aiOnly && history.length > 0;
   const canSuggest = !offline && !searching && status === 'ongoing';
   const canStop = !offline && (searching || aiToMove);
   const draftDiffers = seats.black !== players.black || seats.white !== players.white;
-  const newGame = () => send({ type: 'new-game', players: seats });
+  const newGame = () => send({ type: 'new-game', players: seats, config: rules });
+  const choose = (color: OpeningOption) => send({ type: 'choose', color });
   const undo = () => send({ type: 'undo' });
   const suggest = () => send({ type: 'suggest' });
   const stop = () => send({ type: 'stop' });
@@ -83,12 +158,15 @@ export function Controls() {
         <SeatPicker color="white" value={seats.white} onChange={(white) => setSeats({ ...seats, white })} />
       </div>
       {draftDiffers && <p className="draft-note">Appliqué au lancement de la prochaine partie.</p>}
+      {humanChoice && <OpeningChoice actor={opening.actor} options={opening.options} onChoose={choose} />}
       <div className="actions">
         <ActionButton label="Nouvelle partie" shortcut="N" title="Nouvelle partie" primary disabled={offline} onClick={newGame} />
         <ActionButton label="Annuler" shortcut="U" title="Annuler le dernier coup" disabled={!canUndo} onClick={undo} />
         <ActionButton label="Suggérer" shortcut="H" title="Suggérer un coup" disabled={!canSuggest} onClick={suggest} />
         <ActionButton label="Stop" shortcut="Échap" title="Arrêter la recherche" disabled={!canStop} onClick={stop} />
       </div>
+      <h2 className="panel-title rules-title">Règles</h2>
+      <RulesPicker rules={rules} onChange={setRules} />
     </section>
   );
 }

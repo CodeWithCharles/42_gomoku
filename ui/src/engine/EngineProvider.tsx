@@ -18,6 +18,7 @@ const EMPTY_GAME: GameState = {
   config: { captures: true, doubleThree: true, endgameCapture: true, opening: 'standard' },
   limits: { maxDepth: 10, budgetMs: 450, maxCandidates: 20 },
   history: [],
+  opening: { step: 'play', actor: 'black', options: [] },
   limitsSync: 0,
   suggestion: null,
 };
@@ -64,6 +65,7 @@ function toGameState(prev: GameState, msg: StateEvent): GameState {
     config: msg.config,
     limits: msg.limits,
     history: msg.history,
+    opening: msg.opening ?? { step: 'play', actor: msg.toMove, options: [] },
     limitsSync: msg.event === 'limits' || msg.event === 'connected' ? prev.limitsSync + 1 : prev.limitsSync,
     suggestion: suggestionAfterState(prev.suggestion, msg),
   };

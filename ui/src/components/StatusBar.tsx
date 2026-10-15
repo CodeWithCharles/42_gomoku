@@ -1,5 +1,5 @@
 import { useGame } from '../engine/GameContext';
-import { winReasonLabel, type Color, type ErrorCode, type PlayerKind } from '../protocol';
+import { openingLabel, winReasonLabel, type Color, type ErrorCode, type PlayerKind } from '../protocol';
 import './StatusBar.css';
 
 const PAIRS_TO_WIN = 5;
@@ -11,6 +11,7 @@ const ERRORS: Record<ErrorCode, string> = {
   double_three: 'Coup interdit par la règle du double-trois.',
   game_over: 'La partie est terminée.',
   not_your_turn: "Ce n'est pas votre tour.",
+  opening_rule: "Coup interdit par la règle d'ouverture.",
   unknown: 'Erreur inconnue du moteur.',
 };
 
@@ -46,7 +47,12 @@ function PairsRow({ color, pairs }: { color: Color; pairs: number }) {
 
 // Panneau d'etat : connexion, trait ou resultat, paires capturees, derniere erreur.
 export function StatusBar() {
-  const { connection, engineDied, toMove, players, status, winReason, pairs, lastError } = useGame();
+  const { connection, engineDied, toMove, players, status, winReason, pairs, lastError, opening, config } = useGame();
+  const phase = opening.step === 'place'
+    ? `ouverture ${openingLabel(config.opening)} - pose des ${SIDE_LABEL[toMove]} par le joueur ${opening.actor === 'black' ? 'Noir' : 'Blanc'} (${PLAYER_LABEL[players[opening.actor]]})`
+    : opening.step === 'choose'
+      ? `ouverture ${openingLabel(config.opening)} - choix de couleur du joueur ${opening.actor === 'black' ? 'Noir' : 'Blanc'} (${PLAYER_LABEL[players[opening.actor]]})`
+      : `partie en cours - ${SIDE_LABEL[toMove]} (${PLAYER_LABEL[players[toMove]]})`;
   const conn = connectionView(connection, engineDied);
   const winner: Color | null = status === 'black_wins' ? 'black' : status === 'white_wins' ? 'white' : null;
 
@@ -60,9 +66,7 @@ export function StatusBar() {
       {status === 'ongoing' ? (
         <div className="turn">
           <span className={toMove === 'black' ? 'mini-stone ms-b' : 'mini-stone ms-w'} />
-          <span>
-            partie en cours - {SIDE_LABEL[toMove]} ({PLAYER_LABEL[players[toMove]]})
-          </span>
+          <span>{phase}</span>
         </div>
       ) : (
         <div className="turn">

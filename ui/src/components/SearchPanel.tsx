@@ -19,7 +19,7 @@ function pvColor(first: Color, rank: number): Color {
 // les reglages de la recherche.
 export function SearchPanel() {
   const { searching, depth, score, best, nodes, leaves, cutoffs, ttHits, elapsedMs, pv, pvFirst } = useSearch();
-  const { limits, players, toMove } = useGame();
+  const { limits, players, toMove, opening } = useGame();
   const searched = depth > 0;
   const nps = elapsedMs > 0 ? Math.round((nodes / elapsedMs) * 1000) : 0;
   const rungs = Math.max(1, Math.min(limits.maxDepth, LADDER_MAX));
@@ -27,7 +27,9 @@ export function SearchPanel() {
   const tone = scoreTone(score);
   const shown = (n: number) => (searched ? count(n) : '-');
   const subtitle = searching
-    ? players[toMove] === 'ai'
+    ? opening.step === 'choose'
+      ? "choix de couleur de l'IA"
+      : players[toMove] === 'ai'
       ? `coup de l'IA, ${SIDE_LABEL[toMove]}`
       : `suggestion pour les ${SIDE_LABEL[toMove]}`
     : searched

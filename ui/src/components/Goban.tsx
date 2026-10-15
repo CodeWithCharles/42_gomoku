@@ -188,11 +188,12 @@ function useFadingStones(history: { player: Color; captured: number[] }[]): { id
 // Plateau 19x19 en SVG. Ne consomme que l'etat de partie : les pierres ne sont
 // redessinees que lorsqu'un coup est joue ou que la souris change de case.
 function GobanBoard() {
-  const { board, status, toMove, players, history, suggestion, connection, engineDied, send } = useGame();
+  const { board, status, toMove, players, history, opening, suggestion, connection, engineDied, send } = useGame();
   const { showMoveNumbers } = useView();
   const [hover, setHover] = useState<number | null>(null);
   const fading = useFadingStones(history);
-  const canPlay = connection === 'open' && !engineDied && status === 'ongoing' && players[toMove] === 'human';
+  const canPlay = connection === 'open' && !engineDied && status === 'ongoing'
+    && opening.step !== 'choose' && players[opening.actor] === 'human';
   const last = history.length > 0 ? history[history.length - 1] : null;
   const lastShown = last !== null && board[last.idx] === cellOf(last.player);
   const sugg = suggestion !== null && board[suggestion.idx] === 0 ? suggestion : null;

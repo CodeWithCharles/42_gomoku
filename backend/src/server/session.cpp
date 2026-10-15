@@ -5,6 +5,7 @@
 #include "server/session.hpp"
 
 #include <algorithm>
+#include <utility>
 #include <nlohmann/json.hpp>
 #include <vector>
 
@@ -57,6 +58,8 @@ const char* openingName(Opening opening) {
 			return "swap";
 		case Opening::Swap2:
 			return "swap2";
+		case Opening::LongPro:
+			return "longpro";
 	}
 	return "standard";
 }
@@ -72,7 +75,23 @@ Opening openingFrom(const std::string& name) {
 	if (name == "swap2") {
 		return Opening::Swap2;
 	}
+	if (name == "longpro") {
+		return Opening::LongPro;
+	}
 	return Opening::Standard;
+}
+
+// Protocol name of an opening step.
+const char* openingStepName(OpeningStep step) {
+	switch (step) {
+		case OpeningStep::Place:
+			return "place";
+		case OpeningStep::Choose:
+			return "choose";
+		case OpeningStep::Play:
+			break;
+	}
+	return "play";
 }
 
 // Search statistics as the Stats type of ui/src/protocol.ts.
@@ -272,6 +291,8 @@ void Session::dispatch(net::ClientId client, const std::string& text) {
 		suggest(client);
 	} else if (type == "undo") {
 		undo(client);
+	} else if (type == "choose") {
+		chooseColour(client, text);
 	} else if (type == "limits") {
 		setLimits(client, text);
 	} else if (type == "weights") {
@@ -284,6 +305,11 @@ void Session::dispatch(net::ClientId client, const std::string& text) {
 // Restarts a game under the requested settings and seats.
 void Session::newGame(net::ClientId client, const std::string& body) {
 	const json command = parseCommand(body);
+
+	if (seatsSwapped_) {
+		std::swap(seats_.blackIsAi, seats_.whiteIsAi);
+		seatsSwapped_ = false;
+	}
 
 	GameConfig config;
 	if (command.contains("config") && command.at("config").is_object()) {
@@ -340,19 +366,55 @@ void Session::suggest(net::ClientId client) {
 		pushError(client, legalityText(Legality::GameOver), legalityCode(Legality::GameOver));
 		return;
 	}
-	const SearchResult result = think(client);
+	if (game_.openingStep() == OpeningStep::Choose) {
+		pushError(client, legalityText(Legality::OpeningRule), legalityCode(Legality::OpeningRule));
+		return;
+	}
+	const SearchResult result = think(client, game_);
 	lastStats_ = result.stats;
 	pushState(client, "suggestion");
 }
 
-// Takes back moves until a human is to play again.
+// Takes back moves until a human is to act again. Undoing past a choice of
+// colour cancels it, and the seats follow.
 void Session::undo(net::ClientId client) {
 	game_.undo();
-	if (seats_.isAi(game_.toMove())) {
+	syncSeats();
+	if (seats_.isAi(game_.actor())) {
 		game_.undo();
+		syncSeats();
 	}
 	lastStats_ = SearchStats{};
 	pushState(client, "undo");
+}
+
+// Applies a human's choice during a Swap or Swap2 opening: "black", "white",
+// or "place2" to lay two more stones under Swap2.
+void Session::chooseColour(net::ClientId client, const std::string& body) {
+	const json command = parseCommand(body);
+	const json option = command.value("color", json{});
+	OpeningChoice choice = OpeningChoice::Black;
+	if (option == "white") {
+		choice = OpeningChoice::White;
+	} else if (option == "place2") {
+		choice = OpeningChoice::PlaceTwo;
+	} else if (option != "black") {
+		pushError(client, "choose expects black, white or place2", "unknown");
+		return;
+	}
+	if (game_.openingStep() == OpeningStep::Choose && seats_.isAi(game_.actor())) {
+		pushError(client, "the engine makes this choice", legalityCode(Legality::NotYourTurn));
+		return;
+	}
+	const Legality verdict = game_.choose(choice);
+	if (verdict != Legality::Legal) {
+		pushError(client, legalityText(verdict), legalityCode(verdict));
+		return;
+	}
+	syncSeats();
+	pushState(client, "choice");
+	halted_.store(false, std::memory_order_relaxed);
+	scheduleAiTurn(client);
 }
 
 // Retunes the search. Out of range values are ignored.
@@ -390,7 +452,7 @@ void Session::setWeights(net::ClientId client, const std::string& body) {
 // Searches, pushing a progress event at every completed depth. The search
 // clears the engine's stop flag when it starts, so a stop that came just
 // before would be lost: each progress event re-arms it while halted_ is set.
-SearchResult Session::think(net::ClientId client) {
+SearchResult Session::think(net::ClientId client, Game& game) {
 	const ProgressFn onProgress = [this, client](const SearchStats& stats) {
 		if (halted_.load(std::memory_order_relaxed)) {
 			engine_.requestStop();
@@ -401,16 +463,37 @@ SearchResult Session::think(net::ClientId client) {
 	};
 	SearchLimits limits = limits_;
 	limits.budget = bank_.next(limits_.budget);
-	const SearchResult result = engine_.search(game_, limits, onProgress);
+	const SearchResult result = engine_.search(game, limits, onProgress);
 	bank_.record(result.stats.elapsedMs);
 	return result;
+}
+
+// Copy of the game under the same rules but a Standard opening, replayed
+// move by move, so the engine can search a position waiting for a choice.
+Game Session::freePlayCopy() const {
+	GameConfig config = game_.config();
+	config.opening = Opening::Standard;
+	Game copy(config);
+	for (const PlayedMove& move : game_.history()) {
+		copy.play(move.idx);
+	}
+	return copy;
+}
+
+// Keeps the seats in step with the game: when a choice of colour swaps the
+// players, or an undo cancels one, the human and AI flags trade places.
+void Session::syncSeats() {
+	if (game_.colorsSwapped() != seatsSwapped_) {
+		std::swap(seats_.blackIsAi, seats_.whiteIsAi);
+		seatsSwapped_ = !seatsSwapped_;
+	}
 }
 
 // Queues one AI move if the AI is to play and nothing asked it to hold. At
 // most one is ever pending.
 void Session::scheduleAiTurn(net::ClientId client) {
 	if (aiPending_ || halted_.load(std::memory_order_relaxed) ||
-		game_.status() != GameStatus::Ongoing || !seats_.isAi(game_.toMove())) {
+		game_.status() != GameStatus::Ongoing || !seats_.isAi(game_.actor())) {
 		return;
 	}
 	aiPending_ = true;
@@ -423,7 +506,7 @@ void Session::scheduleAiTurn(net::ClientId client) {
 void Session::aiTurn(net::ClientId client) {
 	aiPending_ = false;
 	if (halted_.load(std::memory_order_relaxed) || game_.status() != GameStatus::Ongoing ||
-		!seats_.isAi(game_.toMove())) {
+		!seats_.isAi(game_.actor())) {
 		return;
 	}
 	if (seats_.blackIsAi && seats_.whiteIsAi) {
@@ -437,7 +520,11 @@ void Session::aiTurn(net::ClientId client) {
 			return;
 		}
 	}
-	const SearchResult result = think(client);
+	if (game_.openingStep() == OpeningStep::Choose) {
+		aiChoose(client);
+		return;
+	}
+	const SearchResult result = think(client, game_);
 	lastStats_ = result.stats;
 	if (result.best == kNoIdx) {
 		return;
@@ -447,6 +534,23 @@ void Session::aiTurn(net::ClientId client) {
 		return;
 	}
 	pushState(client, "ai_move");
+	scheduleAiTurn(client);
+}
+
+// Lets the AI choose its colour: it searches the position as it stands and
+// takes the side the score favours. It never asks for two more stones.
+void Session::aiChoose(net::ClientId client) {
+	Game probe = freePlayCopy();
+	const SearchResult result = think(client, probe);
+	lastStats_ = result.stats;
+	const Player side = probe.toMove();
+	const Player pick = result.stats.score >= 0 ? side : opponent(side);
+	if (game_.choose(pick == Player::Black ? OpeningChoice::Black : OpeningChoice::White) !=
+		Legality::Legal) {
+		return;
+	}
+	syncSeats();
+	pushState(client, "choice");
 	scheduleAiTurn(client);
 }
 
@@ -491,6 +595,17 @@ std::string Session::buildState(const char* event) const {
 					   {"budgetMs", static_cast<long long>(limits_.budget.count())},
 					   {"maxCandidates", limits_.maxCandidates}};
 	state["history"] = std::move(history);
+	json options = json::array();
+	if (game_.openingStep() == OpeningStep::Choose) {
+		options.push_back("black");
+		options.push_back("white");
+		if (game_.canPlaceTwo()) {
+			options.push_back("place2");
+		}
+	}
+	state["opening"] = {{"step", openingStepName(game_.openingStep())},
+						{"actor", colourName(game_.actor())},
+						{"options", std::move(options)}};
 	state["lastStats"] = statsOf(lastStats_);
 	return state.dump();
 }

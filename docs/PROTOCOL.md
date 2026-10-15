@@ -41,7 +41,8 @@ possible.
 | `new-game` | `config?`, `players?` | réinitialise la partie ; interrompt l'IA en cours |
 | `play` | `idx` (ou `x` + `y`) | joue un coup pour le joueur au trait |
 | `suggest` | — | lance une recherche **sans** jouer le coup |
-| `undo` | — | revient à une position où c'est à un humain de jouer ; interrompt l'IA en cours |
+| `undo` | — | revient à une position où c'est à un humain d'agir ; interrompt l'IA en cours |
+| `choose` | `color` | choix de couleur pendant une ouverture Swap ou Swap2 : `"black"`, `"white"` ou `"place2"` (voir [Ouvertures](#ouvertures)) |
 | `limits` | `maxDepth`, `budgetMs`, `maxCandidates` | règle la recherche ; `budgetMs` est une **moyenne** (voir [Budget de temps](#budget-de-temps)) |
 | `weights` | `weights` | règle l'heuristique à chaud |
 | `stop` | — | arrête la recherche en cours et suspend l'enchaînement des coups de l'IA (voir [Arrêt](#arrêt)) |
@@ -65,6 +66,28 @@ erreur : `maxDepth` ∈ [1, 64], `budgetMs` ∈ [10, 60 000], chaque poids de
 
 Un message de plus de **1 Mio** (fragments compris) ferme la connexion : une
 commande en fait quelques centaines d'octets.
+
+### Ouvertures
+
+`config.opening` ∈ `standard`, `pro`, `longpro`, `swap`, `swap2` (défaut
+`standard`). Les règles sont dans [RULES.md](RULES.md), section 6.
+
+- **Pro, Long Pro** : de simples contraintes de placement. Un coup qui ne les
+  respecte pas donne l'erreur `opening_rule`.
+- **Swap, Swap2** : le joueur de la place Noire pose les 3 premières pierres
+  (noire, blanche, noire), puis le joueur de la place Blanche choisit sa
+  couleur avec `choose`. En Swap2, il peut aussi répondre `"place2"`, poser
+  une blanche et une noire, puis laisser le joueur Noir choisir.
+
+Choisir la couleur que tient l'autre joueur **échange les places** : `players`
+change dans le `state` suivant. Un `play` pendant un choix donne
+`opening_rule`. Quand l'IA doit choisir, elle cherche la position et prend la
+couleur que son score favorise ; elle ne répond jamais `"place2"`. `undo`
+annule un choix si l'on revient avant le coup qui l'a précédé.
+
+```json
+{ "type": "choose", "color": "black" }
+```
 
 ### Arrêt
 
@@ -129,11 +152,20 @@ Envoyé à l'ouverture de la connexion, puis après chaque changement.
                "endgameCapture": true, "opening": "standard" },
   "limits":  { "maxDepth": 10, "budgetMs": 450, "maxCandidates": 20 },
   "history": [ { "idx": 180, "player": "black", "captured": [181, 182] } ],
-  "lastStats": { "…": "voir Stats" } }
+  "lastStats": { "…": "voir Stats" },
+  "opening": { "step": "play", "actor": "white", "options": [] } }
 ```
 
 `event` ∈ `connected`, `new_game`, `move`, `ai_move`, `suggestion`, `undo`,
-`limits`, `weights`.
+`limits`, `weights`, `choice`.
+
+`opening.step` ∈ `play` (coup normal), `place` (pierre d'ouverture), `choose`
+(choix de couleur attendu). `opening.actor` est la **place qui doit agir** :
+la couleur au trait en jeu normal, le joueur qui pose ou qui choisit pendant
+l'ouverture. C'est `players[opening.actor]`, et non `players[toMove]`, qui dit
+si un humain doit agir. `opening.options` liste les réponses possibles pendant
+un choix, et reste vide sinon. Un moteur qui n'envoie pas `opening` équivaut à
+`{ "step": "play", "actor": toMove, "options": [] }`.
 
 `status` ∈ `ongoing`, `black_wins`, `white_wins`, `draw`.
 
@@ -180,7 +212,7 @@ Entre deux recherches, `lastStats` vaut `NO_STATS` (tout à zéro, `best: -1`).
 ```
 
 `code` ∈ `legal`, `out_of_bounds`, `occupied`, `double_three`, `game_over`,
-`not_your_turn`, `unknown`. Le `code` est stable et machine-lisible ; le
+`not_your_turn`, `opening_rule`, `unknown`. Le `code` est stable et machine-lisible ; le
 `message` est en anglais et ne sert qu'au debug — l'interface affiche ce
 qu'elle veut à partir du `code`.
 

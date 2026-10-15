@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <vector>
 
 #include "gomoku/board.hpp"
@@ -13,9 +14,18 @@
 
 namespace gomoku {
 
-// Opening conventions. Only Standard is implemented; the others are reserved
-// for the bonus part and must not be relied on yet.
-enum class Opening : uint8_t { Standard, Pro, Swap, Swap2 };
+// Opening conventions (docs/RULES.md, section 6). Pro and LongPro restrict
+// where Black's first two stones go. Swap and Swap2 let the first player lay
+// out the opening, then the other one picks a colour.
+enum class Opening : uint8_t { Standard, Pro, Swap, Swap2, LongPro };
+
+// What the opening expects next: a normal move, an opening stone laid by the
+// player who sets up the position, or a choice of colour.
+enum class OpeningStep : uint8_t { Play, Place, Choose };
+
+// Answer to a choice of colour: keep or take Black or White, or, in Swap2
+// only, lay two more stones and hand the choice back.
+enum class OpeningChoice : uint8_t { Black, White, PlaceTwo };
 
 struct GameConfig {
 	bool capturesEnabled = true;
@@ -60,6 +70,24 @@ class Game {
 	// Takes back the last arbitrated move. Used by the UI undo button.
 	bool undo();
 
+	// Where the opening stands. Always Play under Standard, Pro and LongPro.
+	OpeningStep openingStep() const;
+
+	// Colour of the seat that must act now: the side to move during Play,
+	// the player setting up the opening during Place, the chooser during
+	// Choose. Seats are named by the colour they held at the start.
+	Player actor() const;
+
+	// True if the pending choice may be PlaceTwo (Swap2, first choice only).
+	bool canPlaceTwo() const;
+
+	// Applies the actor's choice during Choose. Returns OpeningRule outside a
+	// choice or for an option the rule does not offer.
+	Legality choose(OpeningChoice c);
+
+	// True when the two seats now play the colour they did not start with.
+	bool colorsSwapped() const;
+
   private:
 	void updateStatus(const PlayedMove& last);
 	bool resolveAlignment(Player p);
@@ -72,6 +100,13 @@ class Game {
 	WinReason winReason_ = WinReason::None;
 	std::array<int, 2> pairs_{};
 	std::vector<PlayedMove> history_{};
+
+	struct ChoiceRecord {
+		std::size_t moves;
+		OpeningChoice choice;
+		bool swaps;
+	};
+	std::vector<ChoiceRecord> choices_{};
 };
 
 }  // namespace gomoku

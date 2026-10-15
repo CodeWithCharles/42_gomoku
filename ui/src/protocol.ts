@@ -21,7 +21,8 @@ export type StateEventName =
   | 'suggestion'
   | 'undo'
   | 'limits'
-  | 'weights';
+  | 'weights'
+  | 'choice';
 
 // Code stable, jamais affiche tel quel : l'UI en derive un libelle.
 export type WinReason =
@@ -38,13 +39,31 @@ export type ErrorCode =
   | 'double_three'
   | 'game_over'
   | 'not_your_turn'
+  | 'opening_rule'
   | 'unknown';
+
+// Conditions de depart : Pro et Long Pro contraignent les deux premieres
+// pierres noires, Swap et Swap2 font choisir une couleur apres l'ouverture.
+export type OpeningRule = 'standard' | 'pro' | 'longpro' | 'swap' | 'swap2';
 
 export interface Config {
   captures: boolean;
   doubleThree: boolean;
   endgameCapture: boolean;
-  opening: string;
+  opening: OpeningRule;
+}
+
+// Etape de l'ouverture : coup normal, pierre d'ouverture posee par le joueur
+// qui installe la position, ou choix de couleur.
+export type OpeningStep = 'play' | 'place' | 'choose';
+export type OpeningOption = 'black' | 'white' | 'place2';
+
+// actor est la place qui doit agir : couleur au trait en jeu normal, joueur
+// qui pose ou qui choisit pendant l'ouverture.
+export interface OpeningState {
+  step: OpeningStep;
+  actor: Color;
+  options: OpeningOption[];
 }
 
 export interface Limits {
@@ -103,6 +122,7 @@ export interface StateEvent {
   limits: Limits;
   history: HistoryEntry[];
   lastStats: Stats;
+  opening?: OpeningState;
 }
 
 export interface ProgressEvent extends Stats {
@@ -122,6 +142,7 @@ export type Command =
   | { type: 'play'; idx: number }
   | { type: 'suggest' }
   | { type: 'undo' }
+  | { type: 'choose'; color: OpeningOption }
   | { type: 'limits'; maxDepth: number; budgetMs: number; maxCandidates: number }
   | { type: 'weights'; weights: Record<string, number> }
   | { type: 'stop' };
@@ -131,6 +152,17 @@ export const NO_STATS: Stats = {
   depth: 0, score: 0, best: -1, nodes: 0, leaves: 0,
   cutoffs: 0, ttHits: 0, elapsedMs: 0, pv: [], rootScores: [],
 };
+
+// Libelle affichable d'une condition de depart.
+export function openingLabel(rule: OpeningRule): string {
+  switch (rule) {
+    case 'pro': return 'Pro';
+    case 'longpro': return 'Long Pro';
+    case 'swap': return 'Swap';
+    case 'swap2': return 'Swap2';
+    default: return 'Standard';
+  }
+}
 
 // Libelle affichable d'une condition de fin de partie.
 export function winReasonLabel(reason: WinReason): string {

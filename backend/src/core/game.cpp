@@ -4,7 +4,46 @@
 
 #include "gomoku/game.hpp"
 
+#include <algorithm>
+
 namespace gomoku {
+namespace {
+
+// Smallest distance from the centre allowed for Black's second stone, or 0
+// when the opening sets no such ring.
+int proRing(Opening opening) {
+	switch (opening) {
+		case Opening::Pro:
+			return 3;
+		case Opening::LongPro:
+			return 4;
+		default:
+			return 0;
+	}
+}
+
+// True if a stone on `i` respects the Pro family rules after `played` moves:
+// Black opens on the centre, and Black's second stone, the third move of the
+// game, lies at least `ring` intersections away from it.
+bool proOpeningAllows(Opening opening, size_t played, Idx i) {
+	const int ring = proRing(opening);
+	if (ring == 0) {
+		return true;
+	}
+	const int centre = kBoardSize / 2;
+	if (played == 0) {
+		return i == idxOf(centre, centre);
+	}
+	if (played == 2) {
+		const int dx = xOf(i) - centre;
+		const int dy = yOf(i) - centre;
+		const int distance = std::max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy);
+		return distance >= ring;
+	}
+	return true;
+}
+
+}  // namespace
 
 Game::Game(GameConfig cfg) : config_(cfg) {}
 
@@ -17,6 +56,7 @@ void Game::reset(GameConfig cfg) {
 	winReason_ = WinReason::None;
 	pairs_ = {0, 0};
 	history_.clear();
+	choices_.clear();
 }
 
 // Restarts a game keeping the current settings.
@@ -76,6 +116,10 @@ Legality Game::check(Idx i, Player p) const {
 	}
 	if (!board_.isEmpty(i)) {
 		return Legality::Occupied;
+	}
+	if (openingStep() == OpeningStep::Choose ||
+		!proOpeningAllows(config_.opening, history_.size(), i)) {
+		return Legality::OpeningRule;
 	}
 
 	Board probe = board_;
@@ -229,7 +273,83 @@ bool Game::undo() {
 	unmakeMove(last);
 	status_ = GameStatus::Ongoing;
 	winReason_ = WinReason::None;
+	while (!choices_.empty() && choices_.back().moves > history_.size()) {
+		choices_.pop_back();
+	}
 	return true;
+}
+
+// Where the opening stands. Swap: three stones laid by the first player, then
+// a choice by the second. Swap2: the second player may instead lay two more
+// stones, and the first player then chooses.
+OpeningStep Game::openingStep() const {
+	const size_t played = history_.size();
+	if (config_.opening == Opening::Swap) {
+		if (played < 3) {
+			return OpeningStep::Place;
+		}
+		return choices_.empty() ? OpeningStep::Choose : OpeningStep::Play;
+	}
+	if (config_.opening == Opening::Swap2) {
+		if (played < 3) {
+			return OpeningStep::Place;
+		}
+		if (choices_.empty()) {
+			return OpeningStep::Choose;
+		}
+		if (choices_.front().choice != OpeningChoice::PlaceTwo) {
+			return OpeningStep::Play;
+		}
+		if (played < 5) {
+			return OpeningStep::Place;
+		}
+		return choices_.size() < 2 ? OpeningStep::Choose : OpeningStep::Play;
+	}
+	return OpeningStep::Play;
+}
+
+// Colour of the seat that acts now. During the opening no swap has happened
+// yet, so the first player is the Black seat and the second the White seat.
+Player Game::actor() const {
+	switch (openingStep()) {
+		case OpeningStep::Place:
+			return history_.size() < 3 ? Player::Black : Player::White;
+		case OpeningStep::Choose:
+			return history_.size() < 5 ? Player::White : Player::Black;
+		case OpeningStep::Play:
+			break;
+	}
+	return toMove_;
+}
+
+// True if the pending choice may be PlaceTwo.
+bool Game::canPlaceTwo() const {
+	return config_.opening == Opening::Swap2 && choices_.empty() &&
+		   openingStep() == OpeningStep::Choose;
+}
+
+// Records the actor's choice. Picking the colour the other seat holds swaps
+// the seats; PlaceTwo swaps nothing and hands the next two stones over.
+Legality Game::choose(OpeningChoice c) {
+	if (status_ != GameStatus::Ongoing || openingStep() != OpeningStep::Choose) {
+		return Legality::OpeningRule;
+	}
+	if (c == OpeningChoice::PlaceTwo && !canPlaceTwo()) {
+		return Legality::OpeningRule;
+	}
+	const Player picked = c == OpeningChoice::Black ? Player::Black : Player::White;
+	const bool swaps = c != OpeningChoice::PlaceTwo && picked != actor();
+	choices_.push_back(ChoiceRecord{history_.size(), c, swaps});
+	return Legality::Legal;
+}
+
+// True when an odd number of choices swapped the seats.
+bool Game::colorsSwapped() const {
+	bool swapped = false;
+	for (const ChoiceRecord& record : choices_) {
+		swapped = swapped != record.swaps;
+	}
+	return swapped;
 }
 
 }  // namespace gomoku

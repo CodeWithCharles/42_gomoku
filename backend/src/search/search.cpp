@@ -269,14 +269,20 @@ SearchResult Engine::search(Game& game, const SearchLimits& limits, const Progre
 
 	const Player me = game.toMove();
 
-	// Full legality is filtered here, double three included, so the engine can
-	// never propose a forbidden move.
+	// Full legality is filtered here, double three and opening rules included,
+	// so the engine can never propose a forbidden move. When the neighbourhood
+	// holds no legal move (Long Pro's third stone), the whole board is tried.
 	MoveList raw;
-	movegen::generate(game.board(), raw);
 	MoveList root;
-	for (int k = 0; k < raw.count; ++k) {
-		if (game.check(raw.moves[k], me) == Legality::Legal) {
-			root.moves[root.count++] = raw.moves[k];
+	for (const int radius : {kNeighborRadius, kBoardSize}) {
+		movegen::generate(game.board(), raw, radius);
+		for (int k = 0; k < raw.count; ++k) {
+			if (game.check(raw.moves[k], me) == Legality::Legal) {
+				root.moves[root.count++] = raw.moves[k];
+			}
+		}
+		if (root.count > 0) {
+			break;
 		}
 	}
 	if (root.count == 0) {

@@ -29,3 +29,66 @@
   grid-template-columns: repeat(2,minmax(0,1fr));
   gap: 6px;
 }
+
+.rules-title {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.rules {
+  display: grid;
+  gap: 8px;
+}
+
+.rules-opening select {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-md);
+}
+
+.rules-opening select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.rules-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.rules-switch {
+  justify-content: space-between;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.opening-choice {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.opening-choice p {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-md);
+  color: var(--text);
+}
+
+.opening-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

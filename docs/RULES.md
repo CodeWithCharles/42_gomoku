@@ -103,7 +103,38 @@ le gérer sans boucler (`GameStatus::Draw`, `WinReason::BoardFull`).
 
 ## 6. Bonus — conditions de départ
 
-Prévoir un champ `GameConfig::opening` (`Standard`, `Pro`, `Swap`, `Swap2`)
-dès le départ **sans l'implémenter** : ça coûte trois lignes et ça évite de
-rouvrir l'API plus tard. À ne traiter que lorsque le mandatory est parfait —
-le sujet précise que le bonus n'est pas évalué sinon.
+Choisies au lancement d'une partie (`config.opening`, voir PROTOCOL.md). Les
+règles de placement sont dans `Game::check`, l'enchaînement des étapes dans
+`Game::openingStep`, `Game::actor` et `Game::choose`.
+
+- **Standard** : Noir commence, sans contrainte.
+- **Pro** : la première pierre noire va au **centre** (K10). La deuxième pierre
+  noire, troisième coup de la partie, doit être à **3 intersections au moins**
+  du centre (distance de Tchebychev ≥ 3, donc hors du carré 5 × 5 central).
+  Les coups blancs sont libres.
+- **Long Pro** : comme Pro, mais à **4 intersections au moins** (hors du carré
+  7 × 7). Si aucun coup légal n'existe dans le voisinage habituel, la
+  recherche élargit à tout le plateau.
+- **Swap** : le premier joueur (place Noire) pose les **3 premières pierres**,
+  noire, blanche, noire. Le second joueur (place Blanche) **choisit sa
+  couleur** ; prendre Noir échange les places. Blanc joue ensuite le 4ᵉ coup.
+- **Swap2** : même début, mais le second joueur a une troisième option :
+  **poser 2 pierres de plus** (une blanche, une noire) et rendre le choix de
+  couleur au premier joueur. Blanc joue ensuite le 6ᵉ coup.
+
+Points durs :
+
+- Pendant un choix, tout coup est refusé (`opening_rule`).
+- Les places sont nommées par la couleur qu'elles tenaient au départ : tant que
+  personne n'a choisi, la place Noire est le premier joueur. `Game` ne connaît
+  que les couleurs ; c'est `Session` qui échange les joueurs humain et IA quand
+  `Game::colorsSwapped` change.
+- `undo` qui repasse avant le coup précédant un choix l'annule, et les places
+  reviennent comme avant.
+- Comme pour le double-trois, la recherche ne vérifie les règles d'ouverture
+  qu'à la racine : l'IA ne propose jamais un coup qui les viole.
+
+Tests : `pro_opening_starts_on_the_centre_and_keeps_away`,
+`long_pro_opening_needs_four_intersections`,
+`swap_lets_the_second_player_take_black`, `swap2_can_hand_the_choice_back`,
+`undo_cancels_an_opening_choice`, `standard_opening_never_asks_for_a_choice`.

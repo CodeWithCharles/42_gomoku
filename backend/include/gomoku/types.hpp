@@ -66,6 +66,7 @@ enum class Legality : uint8_t {
 	DoubleThree,
 	GameOver,
 	NotYourTurn,
+	OpeningRule,
 };
 
 /* -------------------- Debug message for forbidden move -------------------- */

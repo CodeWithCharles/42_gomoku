@@ -40,6 +40,8 @@ const char* legalityText(Legality l) {
 			return "the game is over";
 		case Legality::NotYourTurn:
 			return "not your turn";
+		case Legality::OpeningRule:
+			return "forbidden by the opening rule";
 	}
 	return "unknown";
 }
@@ -58,6 +60,8 @@ const char* legalityCode(Legality l) {
 			return "game_over";
 		case Legality::NotYourTurn:
 			return "not_your_turn";
+		case Legality::OpeningRule:
+			return "opening_rule";
 	}
 	return "unknown";
 }

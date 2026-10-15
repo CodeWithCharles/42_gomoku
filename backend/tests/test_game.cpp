@@ -408,4 +408,93 @@ TEST(reset_clears_everything) {
 	CHECK(g.status() == GameStatus::Ongoing);
 }
 
+TEST(pro_opening_starts_on_the_centre_and_keeps_away) {
+	GameConfig config;
+	config.opening = Opening::Pro;
+	Game g(config);
+	CHECK(g.play(idxOf(3, 3)) == Legality::OpeningRule);
+	CHECK(g.play(idxOf(9, 9)) == Legality::Legal);
+	CHECK(g.play(idxOf(10, 10)) == Legality::Legal);
+	CHECK(g.play(idxOf(11, 9)) == Legality::OpeningRule);
+	CHECK(g.play(idxOf(12, 9)) == Legality::Legal);
+	CHECK(g.play(idxOf(10, 11)) == Legality::Legal);
+	CHECK(g.play(idxOf(9, 10)) == Legality::Legal);
+}
+
+TEST(long_pro_opening_needs_four_intersections) {
+	GameConfig config;
+	config.opening = Opening::LongPro;
+	Game g(config);
+	CHECK(g.play(idxOf(9, 9)) == Legality::Legal);
+	CHECK(g.play(idxOf(10, 10)) == Legality::Legal);
+	CHECK(g.play(idxOf(12, 9)) == Legality::OpeningRule);
+	CHECK(g.play(idxOf(13, 9)) == Legality::Legal);
+}
+
+TEST(swap_lets_the_second_player_take_black) {
+	GameConfig config;
+	config.opening = Opening::Swap;
+	Game g(config);
+	CHECK(g.openingStep() == OpeningStep::Place);
+	CHECK(g.actor() == Player::Black);
+	CHECK(g.play(idxOf(9, 9)) == Legality::Legal);
+	CHECK(g.actor() == Player::Black);
+	CHECK(g.play(idxOf(10, 10)) == Legality::Legal);
+	CHECK(g.play(idxOf(8, 9)) == Legality::Legal);
+	CHECK(g.openingStep() == OpeningStep::Choose);
+	CHECK(g.actor() == Player::White);
+	CHECK(!g.canPlaceTwo());
+	CHECK(g.play(idxOf(5, 5)) == Legality::OpeningRule);
+	CHECK(g.choose(OpeningChoice::PlaceTwo) == Legality::OpeningRule);
+	CHECK(g.choose(OpeningChoice::Black) == Legality::Legal);
+	CHECK(g.colorsSwapped());
+	CHECK(g.openingStep() == OpeningStep::Play);
+	CHECK(g.actor() == Player::White);
+	CHECK(g.choose(OpeningChoice::White) == Legality::OpeningRule);
+}
+
+TEST(swap2_can_hand_the_choice_back) {
+	GameConfig config;
+	config.opening = Opening::Swap2;
+	Game g(config);
+	CHECK(g.play(idxOf(9, 9)) == Legality::Legal);
+	CHECK(g.play(idxOf(10, 10)) == Legality::Legal);
+	CHECK(g.play(idxOf(8, 9)) == Legality::Legal);
+	CHECK(g.canPlaceTwo());
+	CHECK(g.choose(OpeningChoice::PlaceTwo) == Legality::Legal);
+	CHECK(!g.colorsSwapped());
+	CHECK(g.openingStep() == OpeningStep::Place);
+	CHECK(g.actor() == Player::White);
+	CHECK(g.play(idxOf(11, 11)) == Legality::Legal);
+	CHECK(g.play(idxOf(7, 9)) == Legality::Legal);
+	CHECK(g.openingStep() == OpeningStep::Choose);
+	CHECK(g.actor() == Player::Black);
+	CHECK(!g.canPlaceTwo());
+	CHECK(g.choose(OpeningChoice::Black) == Legality::Legal);
+	CHECK(!g.colorsSwapped());
+	CHECK(g.openingStep() == OpeningStep::Play);
+}
+
+TEST(undo_cancels_an_opening_choice) {
+	GameConfig config;
+	config.opening = Opening::Swap;
+	Game g(config);
+	CHECK(g.play(idxOf(9, 9)) == Legality::Legal);
+	CHECK(g.play(idxOf(10, 10)) == Legality::Legal);
+	CHECK(g.play(idxOf(8, 9)) == Legality::Legal);
+	CHECK(g.choose(OpeningChoice::Black) == Legality::Legal);
+	CHECK(g.colorsSwapped());
+	CHECK(g.undo());
+	CHECK(!g.colorsSwapped());
+	CHECK(g.openingStep() == OpeningStep::Place);
+}
+
+TEST(standard_opening_never_asks_for_a_choice) {
+	Game g;
+	CHECK(g.play(idxOf(3, 3)) == Legality::Legal);
+	CHECK(g.openingStep() == OpeningStep::Play);
+	CHECK(g.actor() == Player::White);
+	CHECK(g.choose(OpeningChoice::Black) == Legality::OpeningRule);
+}
+
 }  // namespace
