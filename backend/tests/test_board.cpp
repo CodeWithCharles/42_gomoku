@@ -35,6 +35,28 @@ TEST(place_updates_counts_and_hash) {
 	CHECK(board.hash() != 0);
 }
 
+TEST(board_keeps_track_of_fives) {
+	Board b;
+	for (int x = 3; x < 7; ++x) {
+		b.place(idxOf(x, 4), Player::Black);
+	}
+	CHECK(!b.hasFive(Player::Black));
+	b.place(idxOf(7, 4), Player::Black);
+	CHECK(b.hasFive(Player::Black));
+	CHECK(!b.hasFive(Player::White));
+	b.place(idxOf(8, 4), Player::Black);
+	b.remove(idxOf(3, 4));
+	CHECK(b.hasFive(Player::Black));
+	b.remove(idxOf(5, 4));
+	CHECK(!b.hasFive(Player::Black));
+	for (int k = 0; k < 5; ++k) {
+		b.place(idxOf(14 - k, k), Player::White);
+	}
+	CHECK(b.hasFive(Player::White));
+	b.clear();
+	CHECK(!b.hasFive(Player::White));
+}
+
 TEST(remove_restores_hash) {
 	Board board;
 	board.place(idxOf(3, 4), Player::White);

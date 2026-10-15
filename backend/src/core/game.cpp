@@ -190,18 +190,18 @@ void Game::unmakeMove(const PlayedMove& undo) {
 // to carry that state explicitly if the search needs it.
 GameStatus Game::terminalAfter(const PlayedMove& last) const {
 	const Player mover = last.player;
-	const GameStatus moverWins =
-		mover == Player::Black ? GameStatus::BlackWins : GameStatus::WhiteWins;
-
 	if (pairs_[playerIndex(mover)] >= kPairsToWin) {
-		return moverWins;
+		return mover == Player::Black ? GameStatus::BlackWins : GameStatus::WhiteWins;
 	}
-	if (rules::hasAlignment(board_, last.idx, mover)) {
-		if (!config_.endgameCapture) {
-			return moverWins;
+	if (board_.hasFive(Player::Black) || board_.hasFive(Player::White)) {
+		WinReason why = WinReason::None;
+		const GameStatus foeOutcome = alignmentOutcome(opponent(mover), why);
+		if (foeOutcome != GameStatus::Ongoing) {
+			return foeOutcome;
 		}
-		if (!rules::canBreakAlignment(board_, mover, last.idx, opponent(mover))) {
-			return moverWins;
+		const GameStatus moverOutcome = alignmentOutcome(mover, why);
+		if (moverOutcome != GameStatus::Ongoing) {
+			return moverOutcome;
 		}
 	}
 	if (board_.isFull()) {
@@ -219,23 +219,37 @@ void Game::declareWinner(Player p, WinReason why) {
 // Settles a five of `p` under the endgame capture rule. Returns true when the
 // game is decided, which may be in favour of the opponent.
 bool Game::resolveAlignment(Player p) {
-	const Idx anchor = rules::findAnyAlignment(board_, p);
-	if (anchor == kNoIdx) {
+	WinReason why = WinReason::None;
+	const GameStatus outcome = alignmentOutcome(p, why);
+	if (outcome == GameStatus::Ongoing) {
 		return false;
 	}
+	status_ = outcome;
+	winReason_ = why;
+	return true;
+}
+
+// Outcome of the fives `p` has on the board: Ongoing when there is none or
+// the opponent can still break them by capture, otherwise who wins and why.
+// Breaking needs captures to be on as well as the endgame capture rule.
+GameStatus Game::alignmentOutcome(Player p, WinReason& why) const {
+	if (!board_.hasFive(p)) {
+		return GameStatus::Ongoing;
+	}
+	const Idx anchor = rules::findAnyAlignment(board_, p);
 	const Player foe = opponent(p);
-	if (config_.endgameCapture) {
+	if (config_.endgameCapture && config_.capturesEnabled) {
 		if (rules::canBreakAlignment(board_, p, anchor, foe)) {
-			return false;
+			return GameStatus::Ongoing;
 		}
 		if (pairs_[playerIndex(foe)] == kPairsToWin - 1 &&
 			rules::canCaptureAnyPair(board_, p, foe)) {
-			declareWinner(foe, WinReason::Captures);
-			return true;
+			why = WinReason::Captures;
+			return foe == Player::Black ? GameStatus::BlackWins : GameStatus::WhiteWins;
 		}
 	}
-	declareWinner(p, WinReason::Alignment);
-	return true;
+	why = WinReason::Alignment;
+	return p == Player::Black ? GameStatus::BlackWins : GameStatus::WhiteWins;
 }
 
 // Settles the game after an arbitrated move.
