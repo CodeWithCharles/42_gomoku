@@ -94,6 +94,19 @@ const char* openingStepName(OpeningStep step) {
 	return "play";
 }
 
+// Protocol name of a choice of colour.
+const char* choiceName(OpeningChoice choice) {
+	switch (choice) {
+		case OpeningChoice::White:
+			return "white";
+		case OpeningChoice::PlaceTwo:
+			return "place2";
+		case OpeningChoice::Black:
+			break;
+	}
+	return "black";
+}
+
 // Search statistics as the Stats type of ui/src/protocol.ts.
 json statsOf(const SearchStats& stats) {
 	json out;
@@ -179,8 +192,10 @@ void Session::onConnect(net::ClientId client) {
 	}
 }
 
-// Routes one frame, on a civetweb thread. Only `stop` acts here; every other
-// command goes to the worker, new-game and undo interrupting the AI first.
+// Routes one frame, on a civetweb thread. Only `stop` and `pause` act here;
+// every other command goes to the worker, new-game and undo interrupting the
+// AI first. Stop and pause still queue a job so the worker reports the new
+// state.
 // `suggest` gets its own kind so the queue can coalesce and drop it.
 // Nothing may escape: an exception crossing a civetweb callback is fatal.
 void Session::onText(net::ClientId client, const std::string& text) {
@@ -189,7 +204,9 @@ void Session::onText(net::ClientId client, const std::string& text) {
 		const json type = command.is_object() ? command.value("type", json{}) : json{};
 		if (type == "stop") {
 			interruptAi();
-			return;
+		}
+		if (type == "pause") {
+			pauseAi();
 		}
 		if (type == "new-game" || type == "undo") {
 			interruptAi();
@@ -261,17 +278,27 @@ void Session::run(const Job& job) {
 	}
 }
 
-// Stops the running search, drops the suggests still waiting and keeps the AI
-// from starting another move. Safe from any thread. The flag is set under the
-// queue lock so a worker about to pause between two AI moves cannot miss the
-// wake-up.
+// Stops the running search, drops the suggests still waiting and pauses the
+// AI. Safe from any thread. The flags are set under the queue lock so a worker
+// about to wait between two AI moves cannot miss the wake-up.
 void Session::interruptAi() {
 	{
 		const std::lock_guard<std::mutex> lock(queueMutex_);
 		halted_.store(true, std::memory_order_relaxed);
+		paused_.store(true, std::memory_order_relaxed);
 		std::erase_if(jobs_, [](const Job& queued) { return queued.kind == JobKind::Suggest; });
 	}
 	engine_.requestStop();
+	queueReady_.notify_all();
+}
+
+// Keeps the AI from starting another action, letting the running search end
+// and its move be played. Safe from any thread, same locking as interruptAi.
+void Session::pauseAi() {
+	{
+		const std::lock_guard<std::mutex> lock(queueMutex_);
+		paused_.store(true, std::memory_order_relaxed);
+	}
 	queueReady_.notify_all();
 }
 
@@ -297,6 +324,14 @@ void Session::dispatch(net::ClientId client, const std::string& text) {
 		setLimits(client, text);
 	} else if (type == "weights") {
 		setWeights(client, text);
+	} else if (type == "stop") {
+		pushState(client, "stop");
+	} else if (type == "pause") {
+		pushState(client, "pause");
+	} else if (type == "resume") {
+		resume(client);
+	} else if (type == "step") {
+		step(client);
 	} else {
 		pushError(client, "unknown command: " + type, "unknown");
 	}
@@ -327,8 +362,12 @@ void Session::newGame(net::ClientId client, const std::string& body) {
 
 	game_.reset(config);
 	lastStats_ = SearchStats{};
+	moveStats_.clear();
+	choiceStats_.clear();
 	bank_.reset();
+	stepPending_ = false;
 	halted_.store(false, std::memory_order_relaxed);
+	paused_.store(false, std::memory_order_relaxed);
 	pushState(client, "new_game");
 	scheduleAiTurn(client);
 }
@@ -355,8 +394,10 @@ void Session::play(net::ClientId client, const std::string& body) {
 		pushError(client, legalityText(verdict), legalityCode(verdict));
 		return;
 	}
-	pushState(client, "move");
+	alignStats();
 	halted_.store(false, std::memory_order_relaxed);
+	paused_.store(false, std::memory_order_relaxed);
+	pushState(client, "move");
 	scheduleAiTurn(client);
 }
 
@@ -385,6 +426,7 @@ void Session::undo(net::ClientId client) {
 		syncSeats();
 	}
 	lastStats_ = SearchStats{};
+	alignStats();
 	pushState(client, "undo");
 }
 
@@ -412,8 +454,10 @@ void Session::chooseColour(net::ClientId client, const std::string& body) {
 		return;
 	}
 	syncSeats();
-	pushState(client, "choice");
+	alignStats();
 	halted_.store(false, std::memory_order_relaxed);
+	paused_.store(false, std::memory_order_relaxed);
+	pushState(client, "choice");
 	scheduleAiTurn(client);
 }
 
@@ -489,10 +533,11 @@ void Session::syncSeats() {
 	}
 }
 
-// Queues one AI move if the AI is to play and nothing asked it to hold. At
-// most one is ever pending.
+// Queues one AI move if the AI is to play and nothing asked it to hold, a
+// pending step overriding a pause. At most one is ever pending.
 void Session::scheduleAiTurn(net::ClientId client) {
 	if (aiPending_ || halted_.load(std::memory_order_relaxed) ||
+		(paused_.load(std::memory_order_relaxed) && !stepPending_) ||
 		game_.status() != GameStatus::Ongoing || !seats_.isAi(game_.actor())) {
 		return;
 	}
@@ -501,18 +546,22 @@ void Session::scheduleAiTurn(net::ClientId client) {
 }
 
 // Plays one AI move, then queues the next. Between two engines it first waits
-// kAiPace so the game can be watched; a stop ends the wait and the move, any
-// queued command cuts the wait short and goes first.
+// kAiPace so the game can be watched; a stop or a pause ends the wait, any
+// queued command cuts it short and goes first. A step skips the wait.
 void Session::aiTurn(net::ClientId client) {
 	aiPending_ = false;
-	if (halted_.load(std::memory_order_relaxed) || game_.status() != GameStatus::Ongoing ||
-		!seats_.isAi(game_.actor())) {
+	const bool stepping = stepPending_;
+	stepPending_ = false;
+	if (halted_.load(std::memory_order_relaxed) ||
+		(paused_.load(std::memory_order_relaxed) && !stepping) ||
+		game_.status() != GameStatus::Ongoing || !seats_.isAi(game_.actor())) {
 		return;
 	}
-	if (seats_.blackIsAi && seats_.whiteIsAi) {
+	if (!stepping && seats_.blackIsAi && seats_.whiteIsAi) {
 		std::unique_lock<std::mutex> lock(queueMutex_);
 		const bool woken = queueReady_.wait_for(lock, kAiPace, [this] {
-			return closing_ || !jobs_.empty() || halted_.load(std::memory_order_relaxed);
+			return closing_ || !jobs_.empty() || halted_.load(std::memory_order_relaxed) ||
+				   paused_.load(std::memory_order_relaxed);
 		});
 		lock.unlock();
 		if (woken) {
@@ -533,6 +582,8 @@ void Session::aiTurn(net::ClientId client) {
 		pushError(client, "engine proposed an illegal move", "unknown");
 		return;
 	}
+	alignStats();
+	moveStats_.back() = result.stats;
 	pushState(client, "ai_move");
 	scheduleAiTurn(client);
 }
@@ -550,8 +601,38 @@ void Session::aiChoose(net::ClientId client) {
 		return;
 	}
 	syncSeats();
+	alignStats();
+	choiceStats_.back() = result.stats;
 	pushState(client, "choice");
 	scheduleAiTurn(client);
+}
+
+// Lifts a pause or a stop and lets the AI carry on.
+void Session::resume(net::ClientId client) {
+	stepPending_ = false;
+	halted_.store(false, std::memory_order_relaxed);
+	paused_.store(false, std::memory_order_relaxed);
+	pushState(client, "resume");
+	scheduleAiTurn(client);
+}
+
+// Lets the AI take exactly one action, then stay paused. Does nothing when no
+// AI is to act.
+void Session::step(net::ClientId client) {
+	halted_.store(false, std::memory_order_relaxed);
+	paused_.store(true, std::memory_order_relaxed);
+	stepPending_ = true;
+	scheduleAiTurn(client);
+	if (!aiPending_) {
+		stepPending_ = false;
+	}
+}
+
+// Sizes the per-action statistics to the game, so they follow every move,
+// choice and undo. New entries carry no statistics.
+void Session::alignStats() {
+	moveStats_.resize(game_.history().size());
+	choiceStats_.resize(game_.choices().size());
 }
 
 // Serialises the whole game state, 361 cells included.
@@ -565,14 +646,33 @@ std::string Session::buildState(const char* event) const {
 	}
 
 	json history = json::array();
-	for (const PlayedMove& move : game_.history()) {
+	const std::vector<PlayedMove>& moves = game_.history();
+	for (std::size_t i = 0; i < moves.size(); ++i) {
+		const PlayedMove& move = moves[i];
 		json captured = json::array();
 		for (int k = 0; k < move.capturedCount; ++k) {
 			captured.push_back(static_cast<int>(move.captured[k]));
 		}
-		history.push_back({{"idx", static_cast<int>(move.idx)},
-						   {"player", colourName(move.player)},
-						   {"captured", std::move(captured)}});
+		json entry = {{"idx", static_cast<int>(move.idx)},
+					  {"player", colourName(move.player)},
+					  {"captured", std::move(captured)}};
+		if (i < moveStats_.size() && moveStats_[i]) {
+			entry["stats"] = statsOf(*moveStats_[i]);
+		}
+		history.push_back(std::move(entry));
+	}
+
+	json choices = json::array();
+	const std::vector<ChoiceRecord>& records = game_.choices();
+	for (std::size_t i = 0; i < records.size(); ++i) {
+		json entry = {{"afterMove", records[i].moves},
+					  {"choice", choiceName(records[i].choice)},
+					  {"swapped", records[i].swaps},
+					  {"actor", colourName(records[i].actor)}};
+		if (i < choiceStats_.size() && choiceStats_[i]) {
+			entry["stats"] = statsOf(*choiceStats_[i]);
+		}
+		choices.push_back(std::move(entry));
 	}
 
 	json state;
@@ -595,6 +695,8 @@ std::string Session::buildState(const char* event) const {
 					   {"budgetMs", static_cast<long long>(limits_.budget.count())},
 					   {"maxCandidates", limits_.maxCandidates}};
 	state["history"] = std::move(history);
+	state["choices"] = std::move(choices);
+	state["paused"] = paused_.load(std::memory_order_relaxed);
 	json options = json::array();
 	if (game_.openingStep() == OpeningStep::Choose) {
 		options.push_back("black");

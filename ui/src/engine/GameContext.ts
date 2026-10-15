@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { Cell, Color, Command, Config, ErrorEvent, HistoryEntry, Limits, OpeningState, Pairs, Players, Status, WinReason } from '../protocol';
+import type { Cell, ChoiceEntry, Color, Command, Config, ErrorEvent, HistoryEntry, Limits, OpeningState, Pairs, Players, Status, WinReason } from '../protocol';
 import type { ConnectionState } from '../useEngine';
 
 export interface Suggestion {
@@ -17,6 +17,8 @@ export interface GameValue {
   config: Config;
   limits: Limits;
   history: HistoryEntry[];
+  choices: ChoiceEntry[];
+  paused: boolean;
   opening: OpeningState;
   limitsSync: number;
   suggestion: Suggestion | null;

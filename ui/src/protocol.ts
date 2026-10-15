@@ -22,7 +22,10 @@ export type StateEventName =
   | 'undo'
   | 'limits'
   | 'weights'
-  | 'choice';
+  | 'choice'
+  | 'stop'
+  | 'pause'
+  | 'resume';
 
 // Code stable, jamais affiche tel quel : l'UI en derive un libelle.
 export type WinReason =
@@ -82,10 +85,23 @@ export interface Pairs {
   white: number;
 }
 
+// stats n'est present que pour un coup joue par l'IA : l'analyse de ce coup.
 export interface HistoryEntry {
   idx: number;
   player: Color;
   captured: number[];
+  stats?: Stats;
+}
+
+// Choix de couleur Swap / Swap2 : afterMove est le nombre de pierres posees
+// a ce moment, swapped dit si les places ont ete echangees, actor est la
+// place qui a choisi, nommee par sa couleur de depart.
+export interface ChoiceEntry {
+  afterMove: number;
+  choice: OpeningOption;
+  swapped: boolean;
+  actor: Color;
+  stats?: Stats;
 }
 
 export interface RootScore {
@@ -123,6 +139,8 @@ export interface StateEvent {
   history: HistoryEntry[];
   lastStats: Stats;
   opening?: OpeningState;
+  choices?: ChoiceEntry[];
+  paused?: boolean;
 }
 
 export interface ProgressEvent extends Stats {
@@ -145,7 +163,10 @@ export type Command =
   | { type: 'choose'; color: OpeningOption }
   | { type: 'limits'; maxDepth: number; budgetMs: number; maxCandidates: number }
   | { type: 'weights'; weights: Record<string, number> }
-  | { type: 'stop' };
+  | { type: 'stop' }
+  | { type: 'pause' }
+  | { type: 'resume' }
+  | { type: 'step' };
 
 // Stats vides, pour l'etat initial et entre deux recherches.
 export const NO_STATS: Stats = {

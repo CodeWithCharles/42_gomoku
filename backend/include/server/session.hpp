@@ -13,8 +13,8 @@
 //  THREADING: civetweb handlers never touch the game. They push a job onto a
 //  queue and return at once, so the next frame of the same socket is read
 //  while the engine thinks. One worker thread owns the game and runs the jobs
-//  in order. `stop` is the exception: it acts right away, from the handler,
-//  through two atomics (the engine's stop flag and halted_).
+//  in order. `stop` and `pause` are the exceptions: they act right away, from
+//  the handler, through atomics (the engine's stop flag, halted_, paused_).
 
 #pragma once
 
@@ -24,8 +24,10 @@
 #include <cstdint>
 #include <deque>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "gomoku/eval.hpp"
 #include "gomoku/game.hpp"
@@ -68,6 +70,7 @@ class Session {
 	void run(const Job& job);
 	void dispatch(net::ClientId client, const std::string& text);
 	void interruptAi();
+	void pauseAi();
 
 	void onConnect(net::ClientId client);
 	void onText(net::ClientId client, const std::string& text);
@@ -79,6 +82,8 @@ class Session {
 	void chooseColour(net::ClientId client, const std::string& body);
 	void setLimits(net::ClientId client, const std::string& body);
 	void setWeights(net::ClientId client, const std::string& body);
+	void resume(net::ClientId client);
+	void step(net::ClientId client);
 
 	// Queues one AI move when it is the AI's turn; each AI move queues the
 	// next one, so AI versus AI works too.
@@ -88,6 +93,7 @@ class Session {
 	SearchResult think(net::ClientId client, Game& game);
 	Game freePlayCopy() const;
 	void syncSeats();
+	void alignStats();
 
 	void pushState(net::ClientId client, const char* event);
 	void pushError(net::ClientId client, const std::string& message, const char* code);
@@ -102,7 +108,11 @@ class Session {
 	TimeBank bank_;
 	bool aiPending_ = false;
 	bool seatsSwapped_ = false;
+	bool stepPending_ = false;
 	std::atomic<bool> halted_{false};
+	std::atomic<bool> paused_{false};
+	std::vector<std::optional<SearchStats>> moveStats_;
+	std::vector<std::optional<SearchStats>> choiceStats_;
 
 	std::mutex queueMutex_;
 	std::condition_variable queueReady_;

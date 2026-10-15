@@ -339,8 +339,13 @@ Legality Game::choose(OpeningChoice c) {
 	}
 	const Player picked = c == OpeningChoice::Black ? Player::Black : Player::White;
 	const bool swaps = c != OpeningChoice::PlaceTwo && picked != actor();
-	choices_.push_back(ChoiceRecord{history_.size(), c, swaps});
+	choices_.push_back(ChoiceRecord{history_.size(), c, swaps, actor()});
 	return Legality::Legal;
+}
+
+// Every choice of colour made so far, oldest first.
+const std::vector<ChoiceRecord>& Game::choices() const {
+	return choices_;
 }
 
 // True when an odd number of choices swapped the seats.

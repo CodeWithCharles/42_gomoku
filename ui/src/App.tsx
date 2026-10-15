@@ -8,7 +8,7 @@ import { GameOverBanner } from './components/GameOverBanner';
 import { Clock } from './components/Clock';
 import { StatusBar } from './components/StatusBar';
 import { Controls } from './components/Controls';
-import { MoveHistory } from './components/MoveHistory';
+import { HistoryTimeline, PlaybackControls } from './components/Playback';
 import { SearchPanel } from './components/SearchPanel';
 import './App.css';
 
@@ -40,7 +40,8 @@ function Layout() {
           <div className={tab === 'game' ? 'tab-group' : 'tab-group tab-off'}>
             <StatusBar />
             <Controls />
-            <MoveHistory />
+            <PlaybackControls />
+            <HistoryTimeline />
           </div>
           <div className={tab === 'lab' ? 'tab-group' : 'tab-group tab-off'}>
             <SearchPanel />

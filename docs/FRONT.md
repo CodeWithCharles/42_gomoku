@@ -173,6 +173,9 @@ places sont tenues par l'IA.
 
 ### 10. Reprendre une partie IA contre IA après Stop
 
+**Fait** avec le mode pas à pas ([STEP.md](STEP.md)) : `pause`, `resume`,
+`step` et `paused` dans `state`.
+
 Aujourd'hui, seul `new-game` relance une partie suspendue. Le `state` ne dit
 même pas qu'elle l'est, donc l'interface ne peut pas l'afficher.
 

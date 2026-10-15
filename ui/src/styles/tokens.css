@@ -75,4 +75,11 @@
   --dur-fast: 150ms;
   --dur: 200ms;
   --dur-slow: 250ms;
+  --past: oklch(0.81 0.14 72);
+  --past-soft: oklch(0.81 0.14 72 / 0.14);
+  --past-line: oklch(0.81 0.14 72 / 0.55);
+  --past-glow: oklch(0.81 0.14 72 / 0.22);
+  --past-on: oklch(0.2 0.03 70);
+  --past-badge-bg: oklch(0.17 0.012 250 / 0.94);
+  --board-radius: 1.35%;
 }

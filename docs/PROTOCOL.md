@@ -45,7 +45,10 @@ possible.
 | `choose` | `color` | choix de couleur pendant une ouverture Swap ou Swap2 : `"black"`, `"white"` ou `"place2"` (voir [Ouvertures](#ouvertures)) |
 | `limits` | `maxDepth`, `budgetMs`, `maxCandidates` | règle la recherche ; `budgetMs` est une **moyenne** (voir [Budget de temps](#budget-de-temps)) |
 | `weights` | `weights` | règle l'heuristique à chaud |
-| `stop` | — | arrête la recherche en cours et suspend l'enchaînement des coups de l'IA (voir [Arrêt](#arrêt)) |
+| `stop` | — | arrête la recherche en cours et met l'IA en pause (voir [Arrêt](#arrêt)) |
+| `pause` | — | met l'IA en pause **après** l'action en cours, sans couper la recherche (voir [Pause et pas à pas](#pause-et-pas-à-pas)) |
+| `resume` | — | lève la pause et relance l'IA |
+| `step` | — | fait jouer **une** action à l'IA, puis la laisse en pause |
 
 ```json
 { "type": "new-game",
@@ -91,17 +94,34 @@ annule un choix si l'on revient avant le coup qui l'a précédé.
 
 ### Arrêt
 
-`stop` est la seule commande traitée **immédiatement**, sans attendre son tour
-dans la file du moteur :
+`stop` est traitée **immédiatement**, sans attendre son tour dans la file du
+moteur :
 
 - pendant une recherche de l'IA, celle-ci s'arrête et **l'IA joue le meilleur
   coup trouvé jusque-là** (quelques millisecondes plus tard) ;
-- en partie IA contre IA, la partie est **suspendue** après ce coup. Seul
-  `new-game` la relance : il n'existe pas encore de commande de reprise ;
-- les `suggest` en attente sont abandonnés.
+- l'IA est ensuite **en pause** (`paused: true`) : `resume` ou `step` la
+  relancent ;
+- les `suggest` en attente sont abandonnés ;
+- un `state` d'événement `stop` suit, une fois les commandes déjà en file
+  traitées.
 
 `new-game` et `undo` interrompent l'IA de la même façon avant de s'exécuter.
-Un `play` humain lève la suspension.
+`new-game`, un `play` humain et un `choose` humain lèvent la pause.
+
+### Pause et pas à pas
+
+- `pause` est traitée immédiatement, comme `stop`, mais **ne coupe pas la
+  recherche** : l'IA finit et joue son coup, puis n'en commence pas d'autre.
+  Un `state` d'événement `pause` suit.
+- `resume` lève la pause (et celle d'un `stop`) ; un `state` d'événement
+  `resume` suit, puis les coups de l'IA reprennent.
+- `step` fait jouer **une seule** action à l'IA, coup ou choix de couleur, sans
+  l'attente de 300 ms, puis la laisse en pause. Elle ne produit pas de `state`
+  propre : le `state` `ai_move` ou `choice` de l'action en tient lieu. Sans IA
+  appelée à agir, elle ne fait rien.
+
+Ces trois commandes sont acceptées dans tous les modes ; elles n'ont d'intérêt
+qu'en IA contre IA. La pause n'entre jamais dans `elapsedMs`.
 
 En partie IA contre IA, le moteur marque une pause de **300 ms** entre deux
 coups pour que la partie se suive à l'écran. Cette pause n'est pas comptée
@@ -151,13 +171,26 @@ Envoyé à l'ouverture de la connexion, puis après chaque changement.
   "config":  { "captures": true, "doubleThree": true,
                "endgameCapture": true, "opening": "standard" },
   "limits":  { "maxDepth": 10, "budgetMs": 450, "maxCandidates": 20 },
-  "history": [ { "idx": 180, "player": "black", "captured": [181, 182] } ],
+  "history": [ { "idx": 180, "player": "black", "captured": [181, 182],
+                 "stats": { "…": "voir Stats" } } ],
+  "choices": [ { "afterMove": 3, "choice": "black", "swapped": true,
+                 "actor": "white", "stats": { "…": "voir Stats" } } ],
+  "paused": false,
   "lastStats": { "…": "voir Stats" },
   "opening": { "step": "play", "actor": "white", "options": [] } }
 ```
 
 `event` ∈ `connected`, `new_game`, `move`, `ai_move`, `suggestion`, `undo`,
-`limits`, `weights`, `choice`.
+`limits`, `weights`, `choice`, `stop`, `pause`, `resume`.
+
+`history[i].stats` est l'analyse enregistrée quand l'IA a joué ce coup, au
+format `Stats` ; il est absent pour un coup humain. `choices` liste les choix
+de couleur Swap / Swap2 dans l'ordre : `afterMove` est le nombre de pierres
+posées au moment du choix, `choice` vaut `black`, `white` ou `place2`,
+`swapped` dit si les places ont été échangées, `actor` est la place qui a
+choisi (nommée par sa couleur de départ, comme `opening.actor`), `stats`
+n'existe que pour un choix de l'IA. `paused` dit si l'IA est en pause (`pause` ou `stop`). Un
+moteur qui n'envoie pas `choices` ou `paused` équivaut à `[]` et `false`.
 
 `opening.step` ∈ `play` (coup normal), `place` (pierre d'ouverture), `choose`
 (choix de couleur attendu). `opening.actor` est la **place qui doit agir** :

@@ -263,7 +263,7 @@ const scenarios = [
     async () => {
       const { ws } = await openSocket();
       ws.send('{"type":"new-game","players":{"black":"ai","white":"ai"}}');
-      const kinds = ['suggest', 'stop', 'undo', 'play', 'limits', 'new-game'];
+      const kinds = ['suggest', 'stop', 'undo', 'play', 'limits', 'new-game', 'pause', 'resume', 'step'];
       for (let i = 0; i < 400; i += 1) {
         const type = kinds[i % kinds.length];
         const command = { type };
@@ -280,6 +280,51 @@ const scenarios = [
       }
       ws.send('{"type":"stop"}');
       await sleep(500);
+      ws.close();
+    },
+  ],
+  [
+    'pause, step and resume in an AI versus AI game',
+    async () => {
+      const { ws, messages } = await openSocket();
+      const aiMoves = () => messages.filter((m) => m.type === 'state' && m.event === 'ai_move');
+      const isState = (event) => (m) => m.type === 'state' && m.event === event;
+      ws.send('{"type":"new-game","players":{"black":"ai","white":"ai"}}');
+      if (!(await waitFor(messages, isState('ai_move')))) {
+        throw new Error('no AI move after new-game');
+      }
+      ws.send('{"type":"pause"}');
+      if (!(await waitFor(messages, (m) => isState('pause')(m) && m.paused === true))) {
+        throw new Error('no paused state after pause');
+      }
+      const frozen = aiMoves().length;
+      await sleep(1000);
+      if (aiMoves().length !== frozen) {
+        throw new Error('the AI kept playing while paused');
+      }
+      ws.send('{"type":"step"}');
+      if (!(await waitFor(messages, () => aiMoves().length > frozen))) {
+        throw new Error('no AI move after step');
+      }
+      const stepped = aiMoves().at(-1);
+      if (stepped.paused !== true || !stepped.history.at(-1).stats) {
+        throw new Error('a step must stay paused and record the move statistics');
+      }
+      await sleep(1000);
+      if (aiMoves().length !== frozen + 1) {
+        throw new Error(`a step played ${aiMoves().length - frozen} moves`);
+      }
+      ws.send('{"type":"resume"}');
+      if (!(await waitFor(messages, (m) => isState('resume')(m) && m.paused === false))) {
+        throw new Error('no running state after resume');
+      }
+      if (!(await waitFor(messages, () => aiMoves().length > frozen + 1))) {
+        throw new Error('no AI move after resume');
+      }
+      ws.send('{"type":"stop"}');
+      if (!(await waitFor(messages, (m) => isState('stop')(m) && m.paused === true))) {
+        throw new Error('no paused state after stop');
+      }
       ws.close();
     },
   ],
