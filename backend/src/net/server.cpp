@@ -203,6 +203,8 @@ bool Server::start() {
 								 kWorkerThreads,
 								 "enable_directory_listing",
 								 "no",
+								 "static_file_max_age",
+								 "0",
 								 "enable_websocket_ping_pong",
 								 "yes",
 								 "websocket_timeout_ms",

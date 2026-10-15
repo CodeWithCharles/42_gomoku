@@ -68,6 +68,16 @@
   display: contents;
 }
 
+.playback {
+  flex: none;
+}
+
+.move-history {
+  flex: 1 1 auto;
+  min-height: 240px;
+  max-height: 380px;
+}
+
 .tab-off {
   display: none;
 }
@@ -75,11 +85,12 @@
 @media (min-width: 1280px) {
   .layout {
     grid-template-columns: var(--col-left) minmax(0, 1fr) var(--col-right);
-    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto minmax(0, 1fr);
     grid-template-areas:
       "status board lab"
       "clock board lab"
       "controls board lab"
+      "playback board lab"
       "history board lab";
   }
 
@@ -111,7 +122,11 @@
     grid-area: controls;
   }
 
-  .history {
+  .playback {
+    grid-area: playback;
+  }
+
+  .move-history {
     grid-area: history;
     min-height: 0;
     max-height: none;

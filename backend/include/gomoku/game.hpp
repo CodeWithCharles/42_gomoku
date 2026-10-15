@@ -34,6 +34,16 @@ struct GameConfig {
 	Opening opening = Opening::Standard;
 };
 
+// A choice of colour made during a Swap or Swap2 opening: how many stones
+// were on the board, what was picked, whether the seats traded places, and
+// the seat that chose, named by the colour it held at the start.
+struct ChoiceRecord {
+	std::size_t moves;
+	OpeningChoice choice;
+	bool swaps;
+	Player actor;
+};
+
 class Game {
   public:
 	explicit Game(GameConfig cfg = {});
@@ -88,6 +98,9 @@ class Game {
 	// True when the two seats now play the colour they did not start with.
 	bool colorsSwapped() const;
 
+	// Every choice of colour made so far, oldest first.
+	const std::vector<ChoiceRecord>& choices() const;
+
   private:
 	void updateStatus(const PlayedMove& last);
 	bool resolveAlignment(Player p);
@@ -101,12 +114,6 @@ class Game {
 	WinReason winReason_ = WinReason::None;
 	std::array<int, 2> pairs_{};
 	std::vector<PlayedMove> history_{};
-
-	struct ChoiceRecord {
-		std::size_t moves;
-		OpeningChoice choice;
-		bool swaps;
-	};
 	std::vector<ChoiceRecord> choices_{};
 };
 

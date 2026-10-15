@@ -91,6 +91,8 @@ function newGame(config, players) {
     },
     limits: { maxDepth: 10, budgetMs: 450, maxCandidates: 20 },
     history: [],
+    paused: false,
+    stepPending: false,
     lastStats: {
       depth: 0, score: 0, best: -1, nodes: 0, leaves: 0,
       cutoffs: 0, ttHits: 0, elapsedMs: 0, pv: [], rootScores: [],
@@ -113,6 +115,8 @@ function stateEvent(game, event) {
     config: game.config,
     limits: game.limits,
     history: game.history,
+    choices: [],
+    paused: game.paused,
     lastStats: game.lastStats,
   };
 }
@@ -232,7 +236,7 @@ function runSearch(onDone) {
       .map((idx) => ({ idx, score: Math.round((Math.random() - 0.3) * 2000) }))
       .sort((a, b) => b.score - a.score);
     search.best = rootScores[0].idx;
-    push({
+    const stats = {
       type: 'progress',
       depth,
       score: rootScores[0].score,
@@ -244,7 +248,7 @@ function runSearch(onDone) {
       elapsedMs: Date.now() - started,
       pv: rootScores.slice(0, 4).map((r) => r.idx),
       rootScores: rootScores.slice(0, 8),
-    });
+    };
     push(stats);
     const { type, ...rest } = stats;
     game.lastStats = rest;
@@ -274,18 +278,22 @@ function place(idx, color) {
   game.toMove = color === 'black' ? 'white' : 'black';
 }
 
-// Fait jouer l'IA factice apres une recherche, si c'est bien a elle.
+// Fait jouer l'IA factice apres une recherche, si c'est bien a elle et
+// qu'aucune pause ne la retient ; un pas en attente passe outre la pause.
 function maybeAiMove() {
+  if (search) return;
   if (game.status !== 'ongoing') return;
   if (game.players[game.toMove] !== 'ai') return;
+  if (game.paused && !game.stepPending) return;
+  game.stepPending = false;
   const color = game.toMove;
   runSearch((best) => {
     if (best === null || game.board[best] !== 0) {
       push(stateEvent(game, 'move'));
       return;
     }
-    sleep(5);
     place(best, color);
+    game.history[game.history.length - 1].stats = game.lastStats;
     push(stateEvent(game, 'ai_move'));
     maybeAiMove();
   });
@@ -331,6 +339,7 @@ function handleCommand(raw) {
         return;
       }
       place(idx, game.toMove);
+      game.paused = false;
       push(stateEvent(game, 'move'));
       maybeAiMove();
       break;
@@ -342,6 +351,7 @@ function handleCommand(raw) {
 
     case 'undo': {
       stopSearch();
+      game.paused = true;
       while (game.history.length > 0) {
         const last = game.history.pop();
         game.board[last.idx] = 0;
@@ -368,10 +378,33 @@ function handleCommand(raw) {
       break;
 
     case 'stop': {
+      game.paused = true;
       const pending = stopSearch();
       if (pending?.onDone) pending.onDone(pending.best);
+      push(stateEvent(game, 'stop'));
       break;
     }
+
+    case 'pause':
+      game.paused = true;
+      push(stateEvent(game, 'pause'));
+      break;
+
+    case 'resume':
+      game.paused = false;
+      game.stepPending = false;
+      push(stateEvent(game, 'resume'));
+      maybeAiMove();
+      break;
+
+    case 'step':
+      game.paused = true;
+      if (!search) {
+        game.stepPending = true;
+        maybeAiMove();
+        game.stepPending = false;
+      }
+      break;
 
     default:
       pushError('unknown', `commande inconnue : ${cmd?.type}`);

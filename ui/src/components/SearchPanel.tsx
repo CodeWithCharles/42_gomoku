@@ -1,7 +1,9 @@
-import { idxToLabel, type Color } from '../protocol';
+import { NO_STATS, idxToLabel, type Color, type Stats } from '../protocol';
 import { useGame } from '../engine/GameContext';
 import { useSearch } from '../engine/SearchContext';
+import { useTimeline } from '../view/useTimeline';
 import { count, scoreLabel, scoreTone } from '../format';
+import { AnalysisHeader } from './AnalysisHeader';
 import { SearchSettings } from './SearchSettings';
 import './SearchPanel.css';
 
@@ -16,17 +18,29 @@ function pvColor(first: Color, rank: number): Color {
 }
 
 // Labo IA : profondeur, score, statistiques et variante de la recherche, puis
-// les reglages de la recherche.
+// les reglages de la recherche. En vue du passe, l'analyse enregistree pour la
+// position revue remplace la recherche en direct.
 export function SearchPanel() {
-  const { searching, depth, score, best, nodes, leaves, cutoffs, ttHits, elapsedMs, pv, pvFirst } = useSearch();
+  const search = useSearch();
   const { limits, players, toMove, opening } = useGame();
+  const { position, recorded } = useTimeline();
+  const past = position !== null;
+  const replay = past ? recorded?.stats ?? null : null;
+  const view: Stats = past ? replay ?? NO_STATS : search;
+  const { depth, score, best, nodes, leaves, cutoffs, ttHits, elapsedMs, pv } = view;
+  const searching = !past && search.searching;
+  const pvFirst: Color = past ? recorded?.pvFirst ?? 'black' : search.pvFirst;
   const searched = depth > 0;
   const nps = elapsedMs > 0 ? Math.round((nodes / elapsedMs) * 1000) : 0;
   const rungs = Math.max(1, Math.min(limits.maxDepth, LADDER_MAX));
   const filled = Math.round((depth / Math.max(1, limits.maxDepth)) * rungs);
   const tone = scoreTone(score);
   const shown = (n: number) => (searched ? count(n) : '-');
-  const subtitle = searching
+  const subtitle = past
+    ? replay
+      ? 'analyse enregistrée'
+      : 'aucune analyse enregistrée'
+    : searching
     ? opening.step === 'choose'
       ? "choix de couleur de l'IA"
       : players[toMove] === 'ai'
@@ -51,6 +65,12 @@ export function SearchPanel() {
           </span>
         )}
       </div>
+
+      <AnalysisHeader
+        source={past ? 'move' : searching || searched ? 'live' : 'none'}
+        position={position}
+        stats={past ? replay : searched ? view : null}
+      />
 
       <div className="depth">
         <div className="depth-top">
@@ -120,8 +140,6 @@ export function SearchPanel() {
           <p className="pv-none">pas de variante</p>
         )}
       </div>
-
-      <p className="note">Carte de chaleur : estimation, seul le meilleur coup a un score exact.</p>
 
       <SearchSettings />
     </section>

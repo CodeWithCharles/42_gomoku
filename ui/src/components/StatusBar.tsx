@@ -1,4 +1,5 @@
 import { useGame } from '../engine/GameContext';
+import { FoldTitle, useFolded } from './Fold';
 import { openingLabel, winReasonLabel, type Color, type ErrorCode, type PlayerKind } from '../protocol';
 import './StatusBar.css';
 
@@ -45,8 +46,10 @@ function PairsRow({ color, pairs }: { color: Color; pairs: number }) {
   );
 }
 
-// Panneau d'etat : connexion, trait ou resultat, paires capturees, derniere erreur.
+// Panneau d'etat : connexion, trait ou resultat, paires capturees, derniere
+// erreur. Plie, il ne garde que la derniere erreur.
 export function StatusBar() {
+  const [folded, toggleFolded] = useFolded('status');
   const { connection, engineDied, toMove, players, status, winReason, pairs, lastError, opening, config } = useGame();
   const phase = opening.step === 'place'
     ? `ouverture ${openingLabel(config.opening)} - pose des ${SIDE_LABEL[toMove]} par le joueur ${opening.actor === 'black' ? 'Noir' : 'Blanc'} (${PLAYER_LABEL[players[opening.actor]]})`
@@ -58,27 +61,31 @@ export function StatusBar() {
 
   return (
     <section className="panel status" aria-label="État de la partie">
-      <h2 className="panel-title">Partie</h2>
-      <div className="conn">
-        <span className={conn.dot} />
-        <span>{conn.text}</span>
-      </div>
-      {status === 'ongoing' ? (
-        <div className="turn">
-          <span className={toMove === 'black' ? 'mini-stone ms-b' : 'mini-stone ms-w'} />
-          <span>{phase}</span>
-        </div>
-      ) : (
-        <div className="turn">
-          <span className={winner === 'black' ? 'mini-stone ms-b' : winner === 'white' ? 'mini-stone ms-w' : 'mini-stone ms-none'} />
-          <span>{winner ? `les ${SIDE_LABEL[winner]} gagnent` : 'partie nulle'}</span>
-          {winReason && <span className="turn-reason">- {winReasonLabel(winReason)}</span>}
-        </div>
+      <FoldTitle title="Partie" folded={folded} onToggle={toggleFolded} />
+      {!folded && (
+        <>
+          <div className="conn">
+            <span className={conn.dot} />
+            <span>{conn.text}</span>
+          </div>
+          {status === 'ongoing' ? (
+            <div className="turn">
+              <span className={toMove === 'black' ? 'mini-stone ms-b' : 'mini-stone ms-w'} />
+              <span>{phase}</span>
+            </div>
+          ) : (
+            <div className="turn">
+              <span className={winner === 'black' ? 'mini-stone ms-b' : winner === 'white' ? 'mini-stone ms-w' : 'mini-stone ms-none'} />
+              <span>{winner ? `les ${SIDE_LABEL[winner]} gagnent` : 'partie nulle'}</span>
+              {winReason && <span className="turn-reason">- {winReasonLabel(winReason)}</span>}
+            </div>
+          )}
+          <div className="pairs" aria-label="Paires capturées">
+            <PairsRow color="black" pairs={pairs.black} />
+            <PairsRow color="white" pairs={pairs.white} />
+          </div>
+        </>
       )}
-      <div className="pairs" aria-label="Paires capturées">
-        <PairsRow color="black" pairs={pairs.black} />
-        <PairsRow color="white" pairs={pairs.white} />
-      </div>
       {lastError && (
         <div className="error" role="alert">
           <span className="error-code">{lastError.code}</span>

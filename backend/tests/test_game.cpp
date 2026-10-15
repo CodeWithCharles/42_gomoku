@@ -521,6 +521,33 @@ TEST(undo_cancels_an_opening_choice) {
 	CHECK(g.openingStep() == OpeningStep::Place);
 }
 
+TEST(choices_records_each_opening_choice) {
+	GameConfig config;
+	config.opening = Opening::Swap2;
+	Game g(config);
+	CHECK(g.choices().empty());
+	CHECK(g.play(idxOf(9, 9)) == Legality::Legal);
+	CHECK(g.play(idxOf(10, 10)) == Legality::Legal);
+	CHECK(g.play(idxOf(8, 9)) == Legality::Legal);
+	CHECK(g.choose(OpeningChoice::PlaceTwo) == Legality::Legal);
+	CHECK(g.play(idxOf(11, 11)) == Legality::Legal);
+	CHECK(g.play(idxOf(7, 9)) == Legality::Legal);
+	CHECK(g.choose(OpeningChoice::White) == Legality::Legal);
+	CHECK(g.choices().size() == 2);
+	CHECK(g.choices()[0].moves == 3);
+	CHECK(g.choices()[0].choice == OpeningChoice::PlaceTwo);
+	CHECK(!g.choices()[0].swaps);
+	CHECK(g.choices()[0].actor == Player::White);
+	CHECK(g.choices()[1].moves == 5);
+	CHECK(g.choices()[1].choice == OpeningChoice::White);
+	CHECK(g.choices()[1].swaps);
+	CHECK(g.choices()[1].actor == Player::Black);
+	CHECK(g.undo());
+	CHECK(g.choices().size() == 1);
+	g.reset();
+	CHECK(g.choices().empty());
+}
+
 TEST(standard_opening_never_asks_for_a_choice) {
 	Game g;
 	CHECK(g.play(idxOf(3, 3)) == Legality::Legal);

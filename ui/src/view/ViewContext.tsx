@@ -8,6 +8,8 @@ export interface ViewValue {
   setSeats: (seats: Players) => void;
   rules: Config;
   setRules: (rules: Config) => void;
+  cursor: number | null;
+  setCursor: (cursor: number | null) => void;
 }
 
 // Regles du sujet, toutes actives, ouverture standard.
@@ -17,15 +19,17 @@ const ViewContext = createContext<ViewValue | null>(null);
 
 // Etat propre a l'interface, sans lien avec le moteur : numeros de coups,
 // joueurs et regles choisis pour la prochaine partie, partages par les
-// commandes et la banniere.
+// commandes et la banniere, et position revue dans l'historique (null :
+// partie en direct).
 export function ViewProvider({ children }: { children: ReactNode }) {
   const [showMoveNumbers, setShowMoveNumbers] = useState(false);
   const [seats, setSeats] = useState<Players>({ black: 'human', white: 'ai' });
   const [rules, setRules] = useState<Config>(SUBJECT_RULES);
+  const [cursor, setCursor] = useState<number | null>(null);
   const toggleMoveNumbers = useCallback(() => setShowMoveNumbers((shown) => !shown), []);
   const value = useMemo(
-    () => ({ showMoveNumbers, toggleMoveNumbers, seats, setSeats, rules, setRules }),
-    [showMoveNumbers, toggleMoveNumbers, seats, rules],
+    () => ({ showMoveNumbers, toggleMoveNumbers, seats, setSeats, rules, setRules, cursor, setCursor }),
+    [showMoveNumbers, toggleMoveNumbers, seats, rules, cursor],
   );
   return <ViewContext value={value}>{children}</ViewContext>;
 }

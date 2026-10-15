@@ -1,10 +1,13 @@
-import { memo, useEffect, useState } from 'react';
-import { SIZE, idxToLabel, idxToXY, type Cell, type Color } from '../protocol';
+import { memo, useEffect, useMemo, useState } from 'react';
+import { SIZE, idxToLabel, idxToXY, type Cell, type Color, type Stats } from '../protocol';
 import { useGame } from '../engine/GameContext';
 import { useSearch } from '../engine/SearchContext';
 import { useView } from '../view/ViewContext';
+import { useTimeline } from '../view/useTimeline';
 import { moveNumbers } from '../history';
+import { boardAt } from '../timeline';
 import { scoreLabel } from '../format';
+import { PastView } from './PastView';
 import './Goban.css';
 
 const VIEW = 1040;
@@ -103,13 +106,29 @@ const Backdrop = memo(function Backdrop() {
   );
 });
 
+interface LayerProps {
+  board: Cell[];
+  past: boolean;
+  recorded: Stats | null;
+}
+
+// Analyse a dessiner : celle enregistree pour la position revue, sinon la
+// recherche en cours, sinon celle enregistree pour le dernier coup (pause).
+function useShownAnalysis({ past, recorded }: LayerProps): { stats: Pick<Stats, 'rootScores' | 'pv' | 'best'>; live: boolean } | null {
+  const search = useSearch();
+  if (past) return recorded ? { stats: recorded, live: false } : null;
+  if (search.searching) return { stats: search, live: true };
+  return recorded ? { stats: recorded, live: false } : null;
+}
+
 // Carte de chaleur des coups racine, sous les pierres. Les scores racine ne sont
 // ni tries ni exacts (majorants hors meilleur coup) : l'echelle part de leur
 // min/max, scores decisifs bornes, et reste une estimation.
-function HeatLayer({ board }: { board: Cell[] }) {
-  const { searching, rootScores } = useSearch();
-  if (!searching) return null;
-  const free = rootScores.filter(({ idx }) => board[idx] === 0);
+function HeatLayer(props: LayerProps) {
+  const shown = useShownAnalysis(props);
+  const { board } = props;
+  if (!shown) return null;
+  const free = shown.stats.rootScores.filter(({ idx }) => board[idx] === 0);
   if (free.length === 0) return null;
   const bounded = free.map(({ score }) => Math.max(-HEAT_CAP, Math.min(HEAT_CAP, score)));
   const top = Math.max(...bounded);
@@ -120,7 +139,7 @@ function HeatLayer({ board }: { board: Cell[] }) {
         const { cx, cy } = center(idx);
         const t = top === bottom ? 1 : (bounded[k] - bottom) / (top - bottom);
         return (
-          <rect key={idx} x={cx - 21} y={cy - 21} width="42" height="42" rx="9" className="heat" opacity={0.1 + 0.5 * t} />
+          <rect key={idx} x={cx - 21} y={cy - 21} width="42" height="42" rx="9" className="heat heat-bound" opacity={0.1 + 0.5 * t} />
         );
       })}
     </g>
@@ -129,9 +148,12 @@ function HeatLayer({ board }: { board: Cell[] }) {
 
 // Variante principale et anneau du meilleur coup, au-dessus des pierres. Seul
 // ce calque et la carte de chaleur se repeignent a chaque tick de progression.
-function AnalysisLayer({ board }: { board: Cell[] }) {
-  const { searching, pv, best } = useSearch();
-  if (!searching) return null;
+// Pour une analyse enregistree, l'anneau entoure la pierre deja jouee.
+function AnalysisLayer(props: LayerProps) {
+  const shown = useShownAnalysis(props);
+  const { board } = props;
+  if (!shown) return null;
+  const { pv, best } = shown.stats;
   return (
     <g className="no-hit">
       {pv.map((idx, rank) => {
@@ -148,7 +170,7 @@ function AnalysisLayer({ board }: { board: Cell[] }) {
           />
         );
       })}
-      {best >= 0 && board[best] === 0 && (
+      {best >= 0 && (board[best] === 0 || !shown.live) && (
         <>
           <circle {...center(best)} r="26" className="best-halo" />
           <circle {...center(best)} r="26" className="best-ring" />
@@ -186,120 +208,129 @@ function useFadingStones(history: { player: Color; captured: number[] }[]): { id
 }
 
 // Plateau 19x19 en SVG. Ne consomme que l'etat de partie : les pierres ne sont
-// redessinees que lorsqu'un coup est joue ou que la souris change de case.
+// redessinees que lorsqu'un coup est joue ou que la souris change de case. En
+// vue du passe, il montre la position revue et un clic ramene au direct.
 function GobanBoard() {
-  const { board, status, toMove, players, history, opening, suggestion, connection, engineDied, send } = useGame();
+  const { board: liveBoard, status, toMove, players, history: fullHistory, opening, suggestion, paused, connection, engineDied, send } = useGame();
   const { showMoveNumbers } = useView();
+  const { position, length, moves, recorded, aiOnly, goLive } = useTimeline();
   const [hover, setHover] = useState<number | null>(null);
-  const fading = useFadingStones(history);
-  const canPlay = connection === 'open' && !engineDied && status === 'ongoing'
+  const fading = useFadingStones(fullHistory);
+  const past = position !== null;
+  const board = useMemo(() => (past ? boardAt(fullHistory, moves) : liveBoard), [past, fullHistory, moves, liveBoard]);
+  const history = past ? fullHistory.slice(0, moves) : fullHistory;
+  const recordedStats = past || (aiOnly && paused) ? recorded?.stats ?? null : null;
+  const canPlay = !past && connection === 'open' && !engineDied && status === 'ongoing'
     && opening.step !== 'choose' && players[opening.actor] === 'human';
   const last = history.length > 0 ? history[history.length - 1] : null;
   const lastShown = last !== null && board[last.idx] === cellOf(last.player);
-  const sugg = suggestion !== null && board[suggestion.idx] === 0 ? suggestion : null;
+  const sugg = !past && suggestion !== null && board[suggestion.idx] === 0 ? suggestion : null;
   const numbers = showMoveNumbers ? moveNumbers(history) : null;
   const showGhost = canPlay && hover !== null && board[hover] === 0 && sugg?.idx !== hover;
 
   return (
-    <svg
-      className="goban"
-      viewBox={`0 0 ${VIEW} ${VIEW}`}
-      role="grid"
-      aria-label="Plateau de Gomoku 19 x 19"
-      onMouseLeave={() => setHover(null)}
-    >
-      <Backdrop />
-      <HeatLayer board={board} />
+    <>
+      <svg
+        className="goban"
+        viewBox={`0 0 ${VIEW} ${VIEW}`}
+        role="grid"
+        aria-label="Plateau de Gomoku 19 x 19"
+        onMouseLeave={() => setHover(null)}
+      >
+        <Backdrop />
+        <HeatLayer board={board} past={past} recorded={recordedStats} />
 
-      <g className="no-hit" filter="url(#soft)">
-        {board.map((cell, idx) => {
-          if (cell === 0) return null;
-          const { cx, cy } = center(idx);
-          return <circle key={idx} cx={cx} cy={cy + 2} r={STONE_R} className="shadow" />;
-        })}
-      </g>
-
-      <g className="no-hit">
-        {board.map((cell, idx) => {
-          if (cell === 0) return null;
-          const { cx, cy } = center(idx);
-          return cell === 1 ? (
-            <g key={idx} className="stone">
-              <circle cx={cx} cy={cy} r={STONE_R} fill="url(#stoneB)" />
-              <circle cx={cx} cy={cy} r="22.2" className="stone-b-rim" />
-            </g>
-          ) : (
-            <g key={idx} className="stone">
-              <circle cx={cx} cy={cy} r={STONE_R} fill="url(#stoneW)" />
-              <circle cx={cx} cy={cy} r={STONE_R} fill="url(#nacre)" />
-              <circle cx={cx} cy={cy} r="22.6" className="stone-w-edge" />
-            </g>
-          );
-        })}
-        {fading.map(({ idx, player }) =>
-          board[idx] === 0 ? (
-            <circle key={`fade-${idx}`} {...center(idx)} r={STONE_R} fill={stoneFill(player)} className="stone-out" />
-          ) : null,
-        )}
-
-        {lastShown && (
-          <circle
-            {...center(last.idx)}
-            r={showMoveNumbers ? 19 : 7}
-            className={`${showMoveNumbers ? 'last-ring' : 'last-dot'} ${last.player === 'black' ? 'last-b' : 'last-w'}`}
-          />
-        )}
-        {numbers &&
-          [...numbers].map(([idx, n]) => {
-            if (board[idx] === 0) return null;
+        <g className="no-hit" filter="url(#soft)">
+          {board.map((cell, idx) => {
+            if (cell === 0) return null;
             const { cx, cy } = center(idx);
-            return (
-              <text
-                key={`num-${idx}`}
-                x={cx}
-                y={cy + 1}
-                className={`num ${board[idx] === 1 ? 'num-b' : 'num-w'} ${n >= 100 ? 'num-xs' : 'num-sm'}`}
-              >
-                {n}
-              </text>
+            return <circle key={idx} cx={cx} cy={cy + 2} r={STONE_R} className="shadow" />;
+          })}
+        </g>
+
+        <g className="no-hit">
+          {board.map((cell, idx) => {
+            if (cell === 0) return null;
+            const { cx, cy } = center(idx);
+            return cell === 1 ? (
+              <g key={idx} className="stone">
+                <circle cx={cx} cy={cy} r={STONE_R} fill="url(#stoneB)" />
+                <circle cx={cx} cy={cy} r="22.2" className="stone-b-rim" />
+              </g>
+            ) : (
+              <g key={idx} className="stone">
+                <circle cx={cx} cy={cy} r={STONE_R} fill="url(#stoneW)" />
+                <circle cx={cx} cy={cy} r={STONE_R} fill="url(#nacre)" />
+                <circle cx={cx} cy={cy} r="22.6" className="stone-w-edge" />
+              </g>
             );
           })}
+          {fading.map(({ idx, player }) =>
+            !past && board[idx] === 0 ? (
+              <circle key={`fade-${idx}`} {...center(idx)} r={STONE_R} fill={stoneFill(player)} className="stone-out" />
+            ) : null,
+          )}
 
-        <AnalysisLayer board={board} />
+          {lastShown && (
+            <circle
+              {...center(last.idx)}
+              r={showMoveNumbers ? 19 : 7}
+              className={`${showMoveNumbers ? 'last-ring' : 'last-dot'} ${last.player === 'black' ? 'last-b' : 'last-w'}`}
+            />
+          )}
+          {numbers &&
+            [...numbers].map(([idx, n]) => {
+              if (board[idx] === 0) return null;
+              const { cx, cy } = center(idx);
+              return (
+                <text
+                  key={`num-${idx}`}
+                  x={cx}
+                  y={cy + 1}
+                  className={`num ${board[idx] === 1 ? 'num-b' : 'num-w'} ${n >= 100 ? 'num-xs' : 'num-sm'}`}
+                >
+                  {n}
+                </text>
+              );
+            })}
 
-        {sugg && (
-          <>
-            <circle {...center(sugg.idx)} r={STONE_R} fill={stoneFill(toMove)} className="ghost" />
-            <circle {...center(sugg.idx)} r="28" className="sugg-ring" />
-          </>
-        )}
-        {showGhost && <circle {...center(hover)} r={STONE_R} fill={stoneFill(toMove)} className="ghost" />}
-      </g>
+          <AnalysisLayer board={board} past={past} recorded={recordedStats} />
 
-      <g>
-        {board.map((cell, idx) => {
-          const { cx, cy } = center(idx);
-          const playable = canPlay && cell === 0;
-          const title = sugg?.idx === idx ? `${idxToLabel(idx)} - suggestion, score ${scoreLabel(sugg.score)}` : idxToLabel(idx);
-          return (
-            <rect
-              key={idx}
-              x={cx - 25}
-              y={cy - 25}
-              width="50"
-              height="50"
-              className={playable ? 'hit hit-play' : 'hit'}
-              onMouseEnter={() => setHover(idx)}
-              onClick={playable ? () => send({ type: 'play', idx }) : undefined}
-            >
-              <title>{title}</title>
-            </rect>
-          );
-        })}
-      </g>
+          {sugg && (
+            <>
+              <circle {...center(sugg.idx)} r={STONE_R} fill={stoneFill(toMove)} className="ghost" />
+              <circle {...center(sugg.idx)} r="28" className="sugg-ring" />
+            </>
+          )}
+          {showGhost && <circle {...center(hover)} r={STONE_R} fill={stoneFill(toMove)} className="ghost" />}
+        </g>
 
-      {sugg && hover === sugg.idx && <SuggestionScore idx={sugg.idx} score={sugg.score} />}
-    </svg>
+        <g>
+          {board.map((cell, idx) => {
+            const { cx, cy } = center(idx);
+            const playable = canPlay && cell === 0;
+            const title = sugg?.idx === idx ? `${idxToLabel(idx)} - suggestion, score ${scoreLabel(sugg.score)}` : idxToLabel(idx);
+            return (
+              <rect
+                key={idx}
+                x={cx - 25}
+                y={cy - 25}
+                width="50"
+                height="50"
+                className={playable ? 'hit hit-play' : 'hit'}
+                onMouseEnter={() => setHover(idx)}
+                onClick={playable ? () => send({ type: 'play', idx }) : past ? goLive : undefined}
+              >
+                <title>{title}</title>
+              </rect>
+            );
+          })}
+        </g>
+
+        {sugg && hover === sugg.idx && <SuggestionScore idx={sugg.idx} score={sugg.score} />}
+      </svg>
+      {position !== null && <PastView position={position} length={length} onGoLive={goLive} />}
+    </>
   );
 }
 

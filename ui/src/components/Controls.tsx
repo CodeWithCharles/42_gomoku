@@ -3,6 +3,7 @@ import { useGame } from '../engine/GameContext';
 import { useSearch } from '../engine/SearchContext';
 import { useView } from '../view/ViewContext';
 import { useShortcuts } from '../useShortcuts';
+import { FoldTitle, useFolded } from './Fold';
 import './Controls.css';
 
 // Choix humain/IA d'une couleur, en boutons segmentes.
@@ -123,11 +124,14 @@ function ActionButton({ label, shortcut, title, primary, disabled, onClick }: {
 }
 
 // Choix des joueurs, boutons de partie et regles, avec leurs raccourcis
-// clavier : N, U, H, Echap, et M pour les numeros de coups.
+// clavier : N, U, H, Echap, et M pour les numeros de coups. Les sections
+// Joueurs et Regles se replient ; le choix de couleur reste toujours visible.
 export function Controls() {
   const { send, history, status, players, opening, connection, engineDied } = useGame();
   const { searching } = useSearch();
-  const { toggleMoveNumbers, seats, setSeats, rules, setRules } = useView();
+  const { showMoveNumbers, toggleMoveNumbers, seats, setSeats, rules, setRules } = useView();
+  const [playersFolded, togglePlayersFolded] = useFolded('players');
+  const [rulesFolded, toggleRulesFolded] = useFolded('rules', true);
   const offline = connection !== 'open' || engineDied;
   const aiToMove = status === 'ongoing' && players[opening.actor] === 'ai';
   const humanChoice = !offline && status === 'ongoing' && opening.step === 'choose' && players[opening.actor] === 'human';
@@ -152,21 +156,33 @@ export function Controls() {
 
   return (
     <section className="panel controls" aria-label="Commandes">
-      <h2 className="panel-title">Joueurs</h2>
-      <div className="players">
-        <SeatPicker color="black" value={seats.black} onChange={(black) => setSeats({ ...seats, black })} />
-        <SeatPicker color="white" value={seats.white} onChange={(white) => setSeats({ ...seats, white })} />
-      </div>
-      {draftDiffers && <p className="draft-note">Appliqué au lancement de la prochaine partie.</p>}
+      <FoldTitle title="Joueurs" folded={playersFolded} onToggle={togglePlayersFolded} />
+      {!playersFolded && (
+        <>
+          <div className="players">
+            <SeatPicker color="black" value={seats.black} onChange={(black) => setSeats({ ...seats, black })} />
+            <SeatPicker color="white" value={seats.white} onChange={(white) => setSeats({ ...seats, white })} />
+          </div>
+          {draftDiffers && <p className="draft-note">Appliqué au lancement de la prochaine partie.</p>}
+        </>
+      )}
       {humanChoice && <OpeningChoice actor={opening.actor} options={opening.options} onChoose={choose} />}
-      <div className="actions">
-        <ActionButton label="Nouvelle partie" shortcut="N" title="Nouvelle partie" primary disabled={offline} onClick={newGame} />
-        <ActionButton label="Annuler" shortcut="U" title="Annuler le dernier coup" disabled={!canUndo} onClick={undo} />
-        <ActionButton label="Suggérer" shortcut="H" title="Suggérer un coup" disabled={!canSuggest} onClick={suggest} />
-        <ActionButton label="Stop" shortcut="Échap" title="Arrêter la recherche" disabled={!canStop} onClick={stop} />
-      </div>
-      <h2 className="panel-title rules-title">Règles</h2>
-      <RulesPicker rules={rules} onChange={setRules} />
+      {!playersFolded && (
+        <>
+          <div className="actions">
+            <ActionButton label="Nouvelle partie" shortcut="N" title="Nouvelle partie" primary disabled={offline} onClick={newGame} />
+            <ActionButton label="Annuler" shortcut="U" title="Annuler le dernier coup" disabled={!canUndo} onClick={undo} />
+            <ActionButton label="Suggérer" shortcut="H" title="Suggérer un coup" disabled={!canSuggest} onClick={suggest} />
+            <ActionButton label="Stop" shortcut="Échap" title="Arrêter la recherche" disabled={!canStop} onClick={stop} />
+          </div>
+          <label className="switch rules-switch" title="Afficher les numéros de coups (raccourci M)">
+            <input type="checkbox" checked={showMoveNumbers} onChange={toggleMoveNumbers} />
+            Numéros de coups<kbd>M</kbd>
+          </label>
+        </>
+      )}
+      <FoldTitle title="Règles" folded={rulesFolded} onToggle={toggleRulesFolded} className="rules-title" />
+      {!rulesFolded && <RulesPicker rules={rules} onChange={setRules} />}
     </section>
   );
 }
