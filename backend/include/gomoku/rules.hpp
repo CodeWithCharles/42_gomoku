@@ -37,7 +37,7 @@ bool hasAlignment(const Board& b, Idx i, Player p);
 Idx findAnyAlignment(const Board& b, Player p);
 
 // ENDGAME CAPTURE : can `foe` break the run of `p` crossing `alignAnchor` by
-// capturing one of its pairs in a single move?
+// capturing one of its pairs in a single move, leaving `p` without any five?
 bool canBreakAlignment(const Board& b, Player p, Idx alignAnchor, Player foe);
 
 // Can `foe` capture at least one pair of `victim` in a single move? Backs the

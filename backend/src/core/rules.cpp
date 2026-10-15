@@ -107,6 +107,44 @@ bool pairAroundIsCapturable(const Board& b, Idx s, Player victim, Player foe) {
 	return false;
 }
 
+// True if `foe` can capture a pair of `victim` holding `s` with a move that
+// leaves `victim` without any five. The pair is flanked by `foe` on one side
+// and empty on the other, either way round. The capture is played on a copy:
+// taking one stone out of a long line can leave five of it standing.
+bool captureBreaksAlignment(const Board& b, Idx s, Player victim, Player foe) {
+	const int sx = xOf(s);
+	const int sy = yOf(s);
+	for (const Delta& d : kDirs) {
+		if (!cellIs(b, sx + d.dx, sy + d.dy, victim)) {
+			continue;
+		}
+		const int beforeX = sx - d.dx;
+		const int beforeY = sy - d.dy;
+		const int afterX = sx + 2 * d.dx;
+		const int afterY = sy + 2 * d.dy;
+		Idx move = kNoIdx;
+		if (cellIs(b, beforeX, beforeY, foe) && cellEmpty(b, afterX, afterY)) {
+			move = idxOf(afterX, afterY);
+		} else if (cellEmpty(b, beforeX, beforeY) && cellIs(b, afterX, afterY, foe)) {
+			move = idxOf(beforeX, beforeY);
+		}
+		if (move == kNoIdx) {
+			continue;
+		}
+		Board probe = b;
+		probe.place(move, foe);
+		PlayedMove taken;
+		findCaptures(probe, move, foe, taken);
+		for (int k = 0; k < taken.capturedCount; ++k) {
+			probe.remove(taken.captured[k]);
+		}
+		if (findAnyAlignment(probe, victim) == kNoIdx) {
+			return true;
+		}
+	}
+	return false;
+}
+
 }  // namespace
 
 int findCaptures(const Board& b, Idx i, Player p, PlayedMove& out) {
@@ -168,7 +206,8 @@ Idx findAnyAlignment(const Board& b, Player p) {
 	return kNoIdx;
 }
 
-// True if `foe` can break the run of `p` crossing `alignAnchor` by capture.
+// True if `foe` can break the run of `p` crossing `alignAnchor` by capture,
+// that is capture one of its pairs and leave `p` with no five at all.
 bool canBreakAlignment(const Board& b, Player p, Idx alignAnchor, Player foe) {
 	if (alignAnchor == kNoIdx) {
 		return false;
@@ -185,7 +224,7 @@ bool canBreakAlignment(const Board& b, Player p, Idx alignAnchor, Player foe) {
 			y -= d.dy;
 		}
 		while (cellIs(b, x, y, p)) {
-			if (pairAroundIsCapturable(b, idxOf(x, y), p, foe)) {
+			if (captureBreaksAlignment(b, idxOf(x, y), p, foe)) {
 				return true;
 			}
 			x += d.dx;

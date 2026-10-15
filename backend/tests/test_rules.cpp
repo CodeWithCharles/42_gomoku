@@ -244,6 +244,26 @@ TEST(a_five_can_be_broken_from_the_far_flank_of_the_pair) {
 	CHECK(rules::canBreakAlignment(b, Player::Black, idxOf(7, 9), Player::White));
 }
 
+TEST(capturing_the_end_of_a_long_line_does_not_break_it) {
+	Board b;
+	for (int x = 3; x < 10; ++x) {
+		put(b, x, 9, Player::Black);
+	}
+	put(b, 3, 10, Player::Black);
+	put(b, 3, 11, Player::White);
+	CHECK(!rules::canBreakAlignment(b, Player::Black, idxOf(6, 9), Player::White));
+}
+
+TEST(capturing_the_middle_of_a_long_line_breaks_it) {
+	Board b;
+	for (int x = 3; x < 10; ++x) {
+		put(b, x, 9, Player::Black);
+	}
+	put(b, 6, 10, Player::Black);
+	put(b, 6, 11, Player::White);
+	CHECK(rules::canBreakAlignment(b, Player::Black, idxOf(6, 9), Player::White));
+}
+
 TEST(a_capturable_pair_outside_the_line_does_not_break_it) {
 	Board b;
 	for (int x = 5; x < 10; ++x) {
