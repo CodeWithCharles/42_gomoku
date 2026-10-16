@@ -4,6 +4,8 @@
 
 #include "gomoku/board.hpp"
 
+#include <bit>
+
 namespace gomoku {
 namespace {
 
@@ -59,6 +61,17 @@ void lineOf(Idx i, int axis, int& line, int& pos) {
 	}
 }
 
+// Number of five-slot windows of `word` filled with `p`. A slot holds the
+// code of `p` when its low bit is set and its high bit clear for Black, the
+// other way round for White; walls set both and never count.
+int fiveWindows(uint64_t word, Player p) {
+	const uint64_t lowBits = 0x5555555555555555ULL;
+	const uint64_t low = word & lowBits;
+	const uint64_t high = (word >> 1) & lowBits;
+	const uint64_t mine = p == Player::Black ? (low & ~high) : (high & ~low);
+	return std::popcount(mine & (mine >> 2) & (mine >> 4) & (mine >> 6) & (mine >> 8));
+}
+
 // constinit : built at compile time, so no initialisation order to get wrong
 // and no init() anyone could forget to call.
 constinit const ZobristTable kZobrist = buildZobrist();
@@ -81,6 +94,7 @@ void Board::clear() {
 	for (auto& axis : lines_) {
 		axis.fill(~uint64_t{0});
 	}
+	fives_ = {0, 0};
 	for (Idx i = 0; i < kCellCount; ++i) {
 		setLines(i, Player::None);
 	}
@@ -162,6 +176,7 @@ static_assert(2 * (kBoardSize + 2 * kWindowRadius) <= 64, "a padded line must fi
 
 // Writes the code of `p` into the slot of `i` on its four lines. Each line
 // keeps kWindowRadius wall slots on both sides, so slot = position + radius.
+// The five counters follow the four words that change.
 void Board::setLines(Idx i, Player p) {
 	for (int axis = 0; axis < 4; ++axis) {
 		int line = 0;
@@ -169,8 +184,17 @@ void Board::setLines(Idx i, Player p) {
 		lineOf(i, axis, line, pos);
 		const int shift = 2 * (pos + kWindowRadius);
 		uint64_t& word = lines_[axis][line];
+		fives_[0] -= fiveWindows(word, Player::Black);
+		fives_[1] -= fiveWindows(word, Player::White);
 		word = (word & ~(uint64_t{3} << shift)) | (static_cast<uint64_t>(p) << shift);
+		fives_[0] += fiveWindows(word, Player::Black);
+		fives_[1] += fiveWindows(word, Player::White);
 	}
+}
+
+// True if `p` has five or more stones in a row anywhere.
+bool Board::hasFive(Player p) const {
+	return fives_[playerIndex(p)] > 0;
 }
 
 // Window centred on `i` along `axis`: 9 slots cut out of the line, read as

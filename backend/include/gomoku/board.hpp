@@ -57,11 +57,16 @@ class Board {
 	// True if any stone sits within Chebyshev distance `radius` of `i`.
 	bool hasNeighbor(Idx i, int radius) const;
 
+	// True if `p` has five or more stones in a row anywhere. Kept up to date
+	// by place and remove, so asking costs nothing.
+	bool hasFive(Player p) const;
+
   private:
 	void setLines(Idx i, Player p);
 
 	std::array<Player, kCellCount> cells_{};
 	std::array<std::array<uint64_t, kLinesPerAxis>, 4> lines_{};
+	std::array<int, 2> fives_{};
 	std::array<int, 2> perPlayer_{};
 	int stoneCount_ = 0;
 	uint64_t hash_ = 0;

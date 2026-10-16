@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <new>
+#include <utility>
 
 #include "gomoku/eval.hpp"
 #include "gomoku/movegen.hpp"
@@ -88,11 +89,76 @@ int orderMoves(const Board& b, Player p, MoveList& moves, Idx first) {
 	return forced;
 }
 
+// True if one of the stones in `taken` belongs to a run of at least `run`
+// stones of `owner`, measured before they leave the board.
+bool touchesRun(const Board& b, const PlayedMove& taken, Player owner, int run) {
+	for (int k = 0; k < taken.capturedCount; ++k) {
+		for (int axis = 0; axis < 4; ++axis) {
+			if (b.countLine(taken.captured[k], axis, owner) >= run) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+// True if a stone of `p` on the empty cell `i` would threaten to capture a
+// pair of the opponent that belongs to a five: two foe stones in a row next
+// to it, one of them in a five, then an empty cell.
+bool threatensFive(const Board& b, Idx i, Player p) {
+	const Player foe = opponent(p);
+	for (int dy = -1; dy <= 1; ++dy) {
+		for (int dx = -1; dx <= 1; ++dx) {
+			if (dx == 0 && dy == 0) {
+				continue;
+			}
+			const int x = xOf(i);
+			const int y = yOf(i);
+			if (!inBounds(x + 3 * dx, y + 3 * dy) || b.at(x + dx, y + dy) != foe ||
+				b.at(x + 2 * dx, y + 2 * dy) != foe || !b.isEmpty(idxOf(x + 3 * dx, y + 3 * dy))) {
+				continue;
+			}
+			for (int axis = 0; axis < 4; ++axis) {
+				if (b.countLine(idxOf(x + dx, y + dy), axis, foe) >= kAlignToWin ||
+					b.countLine(idxOf(x + 2 * dx, y + 2 * dy), axis, foe) >= kAlignToWin) {
+					return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+
+// True if `move` is a capture move that the static ordering underrates but
+// the endgame capture rule makes decisive: a capture that cuts a four or a
+// five of the opponent or wins by the fifth pair, a guard of a pair that
+// belongs to our five or that would hand the opponent its fifth pair, or,
+// when a five stands, a threat on a pair of the opponent's five.
+bool decisiveCaptureMove(const Board& b, Idx move, Player me, const std::array<int, 2>& pairs,
+						 bool fiveStands) {
+	const Player foe = opponent(me);
+	PlayedMove taken;
+	if (rules::findCaptures(b, move, me, taken) > 0 &&
+		(pairs[playerIndex(me)] >= kPairsToWin - 1 || touchesRun(b, taken, foe, 4))) {
+		return true;
+	}
+	if (rules::findCaptures(b, move, foe, taken) > 0 &&
+		(pairs[playerIndex(foe)] >= kPairsToWin - 1 || touchesRun(b, taken, me, kAlignToWin))) {
+		return true;
+	}
+	return fiveStands && threatensFive(b, move, me);
+}
+
 // Keeps the best candidates of a node at `ply`: `maxCandidates` at the root and
 // for its replies, kBeamStep fewer at each ply below, never under kMinBeam.
-// When a five is on the line, only the forced moves and a spare are kept.
-// A limit of 0 or less keeps everything.
-void trimMoves(MoveList& moves, int maxCandidates, int ply, int forced) {
+// When a five is on the line, only the forced moves and a spare are kept. In
+// such a node, when a five already stands on the board, or when either side
+// is one pair from winning by capture, the decisive capture moves are kept as
+// well (see decisiveCaptureMove): under the endgame capture rule they stop a
+// four, save or break a standing five, or decide a fifth pair, and the static
+// ordering cannot rank them. A limit of 0 or less keeps everything.
+void trimMoves(const Game& game, MoveList& moves, int maxCandidates, int ply, int forced) {
+	const Board& b = game.board();
 	if (maxCandidates <= 0) {
 		return;
 	}
@@ -101,7 +167,21 @@ void trimMoves(MoveList& moves, int maxCandidates, int ply, int forced) {
 	if (forced > 0) {
 		width = std::min(width, forced + kForcedSpare);
 	}
-	moves.count = std::min(moves.count, width);
+	int kept = std::min(moves.count, width);
+	const Player me = game.toMove();
+	const std::array<int, 2> pairs = game.pairs();
+	const bool fiveStands = b.hasFive(Player::Black) || b.hasFive(Player::White);
+	const bool urgent = forced > 0 || fiveStands || pairs[0] >= kPairsToWin - 1 ||
+						pairs[1] >= kPairsToWin - 1;
+	if (urgent && game.config().capturesEnabled) {
+		for (int k = kept; k < moves.count; ++k) {
+			if (decisiveCaptureMove(b, moves.moves[k], me, pairs, fiveStands)) {
+				std::swap(moves.moves[kept], moves.moves[k]);
+				++kept;
+			}
+		}
+	}
+	moves.count = kept;
 }
 
 }  // namespace
@@ -212,7 +292,7 @@ Score Engine::negamax(Game& game, int depth, int ply, Score alpha, Score beta) {
 		return eval::evaluate(game.board(), game.toMove(), game.pairs());
 	}
 	const int forced = orderMoves(game.board(), game.toMove(), moves, ttMove);
-	trimMoves(moves, limits_.maxCandidates, ply, forced);
+	trimMoves(game, moves, limits_.maxCandidates, ply, forced);
 
 	Score best = -kScoreInf;
 	Idx bestMove = kNoIdx;
@@ -290,7 +370,7 @@ SearchResult Engine::search(Game& game, const SearchLimits& limits, const Progre
 	}
 
 	const int forced = orderMoves(game.board(), me, root, kNoIdx);
-	trimMoves(root, limits.maxCandidates, 0, forced);
+	trimMoves(game, root, limits.maxCandidates, 0, forced);
 	Idx best = root.moves[0];
 
 	for (int depth = 1; depth <= limits.maxDepth; ++depth) {

@@ -371,6 +371,38 @@ TEST(terminal_after_sees_a_win) {
 	CHECK(g.status() == GameStatus::Ongoing);
 }
 
+TEST(terminal_after_sees_a_five_made_unbreakable) {
+	Game g;
+	Setup s{g};
+	for (int x = 5; x <= 9; ++x) {
+		s.put(x, 9, Player::Black);
+	}
+	s.put(7, 10, Player::Black);
+	s.put(7, 8, Player::White);
+	s.giveTurnTo(Player::Black);
+
+	PlayedMove undo;
+	g.makeMove(idxOf(7, 11), undo);
+	CHECK(g.terminalAfter(undo) == GameStatus::BlackWins);
+	g.unmakeMove(undo);
+}
+
+TEST(a_five_wins_at_once_when_captures_are_off) {
+	GameConfig config;
+	config.capturesEnabled = false;
+	Game g(config);
+	Setup s{g};
+	for (int x = 5; x < 9; ++x) {
+		s.put(x, 9, Player::Black);
+	}
+	s.put(7, 10, Player::Black);
+	s.put(7, 8, Player::White);
+	s.giveTurnTo(Player::Black);
+
+	CHECK(g.play(idxOf(9, 9)) == Legality::Legal);
+	CHECK(g.status() == GameStatus::BlackWins);
+}
+
 TEST(terminal_after_sees_a_win_by_captures) {
 	Game g;
 	Setup s{g};

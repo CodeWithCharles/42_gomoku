@@ -86,6 +86,9 @@ Un alignement de 5 ne gagne pas automatiquement :
    cette capture ne casse pas la ligne.
 3. Si aucun de ces cas n'est possible, la partie s'arrête immédiatement.
 
+La règle ne s'applique que si les **captures sont activées** : sans captures,
+aucune ligne n'est cassable et tout cinq gagne immédiatement.
+
 Implémentation : `Game::updateStatus` résout l'alignement de **l'adversaire en
 premier** — c'est ce qui fait gagner un alignement en sursis que le coup
 adverse n'a pas cassé.

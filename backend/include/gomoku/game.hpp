@@ -72,9 +72,9 @@ class Game {
 	void makeMove(Idx i, PlayedMove& undo);
 	void unmakeMove(const PlayedMove& undo);
 
-	// End of game as seen from the search, to call right after makeMove.
-	// Cheap on purpose: it only looks at the stone just played, so it misses
-	// the "pending five" case that updateStatus resolves. See game.cpp.
+	// End of game as seen from the search, to call right after makeMove. Same
+	// verdict as updateStatus, pending fives included; the full arbitration
+	// only runs when the board holds a five, which Board knows in O(1).
 	GameStatus terminalAfter(const PlayedMove& last) const;
 
 	// Takes back the last arbitrated move. Used by the UI undo button.
@@ -104,6 +104,7 @@ class Game {
   private:
 	void updateStatus(const PlayedMove& last);
 	bool resolveAlignment(Player p);
+	GameStatus alignmentOutcome(Player p, WinReason& why) const;
 	void declareWinner(Player p, WinReason why);
 
 	GameConfig config_{};
